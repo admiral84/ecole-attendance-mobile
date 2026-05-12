@@ -1,0 +1,33 @@
+TeacherApp/
+├── app/
+│   ├── (auth)/
+│   │   ├── login.jsx
+│   │   ├── register.jsx
+│   │   ├── forgot-password.jsx
+│   │   └── reset-password.jsx
+│   ├── (tabs)/
+│   │   ├── _layout.jsx
+│   │   ├── dashboard.jsx
+│   │   ├── schedule.jsx
+│   │   ├── classes.jsx
+│   │   ├── profile.jsx
+│   │   └── students/
+│   │       └── [classId].jsx
+│   ├── _layout.jsx
+│   ├── index.jsx
+│   └── mark-absence/
+│       └── [studentId].jsx
+├── components/
+│   ├── AnimatedButton.jsx
+│   ├── CustomCard.jsx
+│   ├── StudentCard.jsx
+│   └── LoadingScreen.jsx
+├── hooks/
+│   ├── useAuth.js
+│   └── useTeacher.js
+├── services/
+│   └── supabase.js
+├── utils/
+│   └── animations.js
+├── .env.local
+└── package.json
