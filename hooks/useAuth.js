@@ -7,19 +7,54 @@ export const useAuth = () => {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        fetchUser(session.user.id);
+    const initializeAuth = async () => {
+      try {
+        // Get initial session
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
+
+        // Only clear session if there's a specific invalid refresh token error
+        if (error) {
+          // Check if it's the invalid refresh token error
+          if (
+            error.message?.includes("Invalid Refresh Token") ||
+            error.status === 400
+          ) {
+            console.log("Invalid refresh token detected, clearing session");
+            await supabase.auth.signOut();
+            setSession(null);
+            setUser(null);
+          } else {
+            // Other errors, just log them
+            console.error("Session retrieval error:", error);
+          }
+        } else if (session?.user) {
+          // Valid session exists
+          setSession(session);
+          await fetchUser(session.user.id);
+        }
+      } catch (error) {
+        console.error("Error getting session:", error);
+        // Don't automatically clear on all errors
+        if (error.message?.includes("Refresh Token Not Found")) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
+
+    initializeAuth();
 
     // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
+
         if (session?.user) {
           await fetchUser(session.user.id);
         } else {
@@ -67,6 +102,7 @@ export const useAuth = () => {
 
       return { success: true, data };
     } catch (error) {
+      console.error("Login error:", error);
       return { success: false, error: error.message };
     }
   };
@@ -102,7 +138,28 @@ export const useAuth = () => {
 
       return { success: true };
     } catch (error) {
+      console.error("Register error:", error);
       return { success: false, error: error.message };
+    }
+  };
+  const emailExists = async (email) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("email")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Error checking email:", error);
+        return false; // or throw error depending on your needs
+      }
+
+      // Returns true if data exists (email found), false otherwise
+      return data !== null;
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      return false;
     }
   };
 
@@ -115,6 +172,7 @@ export const useAuth = () => {
       if (error) throw error;
       return { success: true };
     } catch (error) {
+      console.error("Reset password error:", error);
       return { success: false, error: error.message };
     }
   };
@@ -128,6 +186,7 @@ export const useAuth = () => {
       if (error) throw error;
       return { success: true };
     } catch (error) {
+      console.error("Update password error:", error);
       return { success: false, error: error.message };
     }
   };
@@ -140,6 +199,7 @@ export const useAuth = () => {
       setSession(null);
       return { success: true };
     } catch (error) {
+      console.error("Logout error:", error);
       return { success: false, error: error.message };
     }
   };
@@ -151,6 +211,7 @@ export const useAuth = () => {
     login,
     register,
     resetPassword,
+    emailExists,
     updatePassword,
     logout,
   };

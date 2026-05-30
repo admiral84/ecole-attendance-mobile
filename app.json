@@ -8,23 +8,37 @@
     "scheme": "ecoleattendancemobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "owner": "admiral1984",
+    "scheme": "ecole-attendance-mobile",
+
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.admiral.attendance"
     },
+
     "android": {
+      "package": "dev.admiral.attendance",
+      "googleServicesFile": "./google-services.json",
+
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "notification": {
+        "icon": "./assets/images/notification-icon.png",
+        "color": "#ffffff"
+      },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
       [
@@ -39,11 +53,31 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "googleServicesFile": "./google-services.json"
+          },
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      "expo-notifications"
     ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6a5b6e30-b6dc-4390-b3f3-8afc5bc6e12a"
+      }
     }
   }
 }

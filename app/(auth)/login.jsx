@@ -1,26 +1,150 @@
+import Constants from "expo-constants";
+import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useAuth } from "../../hooks/useAuth";
+import { supabase } from "../../services/supabase";
+
+// Configure notification handler
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
+
+  // Check if running in Expo Go (development mode)
+  const isExpoGo = Constants.appOwnership === "expo";
+
+  // Register device token function
+  const registerDeviceToken = async (userId) => {
+    // BYPASS: Skip token registration in Expo Go
+
+    try {
+      console.log("========== DEVICE TOKEN REGISTRATION START ==========");
+      console.log("User ID:", userId);
+      console.log("User ID type:", typeof userId);
+
+      // Check if device is physical (not simulator)
+      if (!Device.isDevice) {
+        console.log("Not a physical device");
+        Alert.alert(
+          "Warning",
+          "Push notifications only work on physical devices",
+        );
+        return false;
+      }
+      console.log("Device is physical");
+
+      // Request permissions
+      const { status: existingStatus } =
+        await Notifications.getPermissionsAsync();
+      console.log("Existing permission status:", existingStatus);
+
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+        console.log("New permission status:", status);
+      }
+
+      if (finalStatus !== "granted") {
+        console.log("Permission denied");
+        Alert.alert(
+          "Permission denied",
+          "Please enable notifications to receive alerts",
+        );
+        return false;
+      }
+      console.log("Permission granted");
+
+      // Get Expo push token - only in production build
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      if (!projectId) {
+        console.error("No projectId found for push notifications");
+        Alert.alert("Error", "Push notification configuration missing");
+        return false;
+      }
+
+      const expoToken = (
+        await Notifications.getExpoPushTokenAsync({
+          projectId: projectId,
+        })
+      ).data;
+      console.log("Expo Push Token:", expoToken);
+
+      // Get device name
+      const deviceName = `${Device.deviceName || "Unknown"} - ${Device.osName || "Unknown"}`;
+      console.log("Device name:", deviceName);
+
+      // Save to Supabase device_tokens table
+      console.log("Attempting to save to Supabase...");
+
+      const { data, error } = await supabase
+        .from("device_tokens")
+        .upsert(
+          {
+            user_id: userId,
+            expo_token: expoToken,
+            device_name: deviceName,
+            last_active: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "expo_token",
+          },
+        )
+        .select();
+
+      if (error) {
+        console.error("ERROR saving device token:", error);
+        console.error("Error details:", JSON.stringify(error, null, 2));
+        Alert.alert("Database Error", `Error: ${error.message}`);
+        return false;
+      } else {
+        console.log("SUCCESS! Device token saved:", data);
+        console.log("========== DEVICE TOKEN REGISTRATION END ==========");
+        return true;
+      }
+    } catch (error) {
+      console.error("CATCH ERROR:", error);
+      // Don't show alert in development mode
+      if (!isExpoGo) {
+        Alert.alert("Error", `Unexpected error: ${error.message}`);
+      }
+      return false;
+    }
+  };
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace("/(tabs)/dashboard");
+    }
+  }, [user, authLoading]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -29,15 +153,77 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
+    console.log("Attempting login with email:", email);
+
     const result = await login(email, password);
-    setLoading(false);
+    console.log("Login result:", result);
 
     if (result.success) {
+      console.log("Login successful!");
+
+      // Get the current authenticated user directly from Supabase
+      const {
+        data: { user: currentUser },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        console.error("Error getting current user:", userError);
+        Alert.alert("Erreur", "Impossible de récupérer l'utilisateur");
+        setLoading(false);
+        return;
+      }
+
+      if (currentUser) {
+        console.log("Current user ID:", currentUser.id);
+        console.log("Current user email:", currentUser.email);
+
+        // WAIT for device token registration to complete
+        const tokenRegistered = await registerDeviceToken(currentUser.id);
+        console.log("Token registration result:", tokenRegistered);
+
+        if (tokenRegistered) {
+          console.log(
+            "Token registered successfully, navigating to dashboard...",
+          );
+        } else {
+          console.log("Token registration failed, but continuing...");
+        }
+      } else {
+        console.log("No current user found");
+      }
+
+      // Navigate after token registration is complete
       router.replace("/(tabs)/dashboard");
     } else {
+      console.error("Login failed:", result.error);
       Alert.alert("Erreur de connexion", result.error);
     }
+
+    setLoading(false);
   };
+
+  const handleForgotPassword = () => {
+    router.push("forgot-password");
+  };
+
+  const handleRegister = () => {
+    router.push("register");
+  };
+
+  // Show loading screen while checking auth
+  if (authLoading) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
+        <ActivityIndicator size="large" color="#6c63ff" />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -117,11 +303,12 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Forgot Password Link */}
         <TouchableOpacity
-          style={styles.forgotPassword}
-          onPress={() => router.push("/(auth)/forgot-password")}
+          style={styles.forgotPasswordContainer}
+          onPress={handleForgotPassword}
         >
-          <Text style={styles.forgotPasswordText}>Mot de passe oublié?</Text>
+          <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -136,9 +323,10 @@ export default function LoginScreen() {
           )}
         </TouchableOpacity>
 
+        {/* Register Link */}
         <View style={styles.registerContainer}>
-          <Text style={styles.registerText}>Pas encore de compte? </Text>
-          <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
+          <Text style={styles.registerText}>Pas encore de compte ? </Text>
+          <TouchableOpacity onPress={handleRegister}>
             <Text style={styles.registerLink}>S&apos;inscrire</Text>
           </TouchableOpacity>
         </View>
@@ -201,13 +389,14 @@ const styles = StyleSheet.create({
   eyeIcon: {
     padding: 10,
   },
-  forgotPassword: {
-    alignSelf: "flex-end",
+  forgotPasswordContainer: {
+    alignItems: "flex-end",
     marginBottom: 20,
   },
   forgotPasswordText: {
     color: "#6c63ff",
     fontSize: 14,
+    fontWeight: "500",
   },
   loginButton: {
     backgroundColor: "#6c63ff",
@@ -236,7 +425,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   registerText: {
-    color: "#999",
+    color: "#666",
     fontSize: 14,
   },
   registerLink: {

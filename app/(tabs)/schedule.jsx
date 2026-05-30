@@ -1,8 +1,11 @@
+// ScheduleScreen.js - Fixed version with working delete
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,9 +20,17 @@ import { supabase } from "../../services/supabase";
 
 export default function ScheduleScreen() {
   const { user } = useAuth();
-  const { schedule, fetchTeacherSchedule, loading, createSchedule } =
-    useTeacher(user?.user_id || "");
+  const {
+    schedule,
+    fetchTeacherSchedule,
+    loading,
+    createSchedule,
+    deleteSchedule,
+  } = useTeacher(user?.user_id || "");
+
   const [modalVisible, setModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [selectedSeance, setSelectedSeance] = useState(null);
   const [selectedDay, setSelectedDay] = useState("");
   const [startTime, setStartTime] = useState(new Date());
   const [endTime, setEndTime] = useState(new Date());
@@ -34,14 +45,47 @@ export default function ScheduleScreen() {
   const [showClassDropdown, setShowClassDropdown] = useState(false);
   const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [scheduleData, setScheduleData] = useState([]);
+  const [deleting, setDeleting] = useState(false);
 
   const days = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 
   useEffect(() => {
     fetchClasses();
     fetchSubjects();
-    fetchTeacherSchedule();
+    loadSchedule();
   }, []);
+
+  const loadSchedule = async () => {
+    const result = await fetchTeacherSchedule();
+    if (result?.success && result.data) {
+      // Enhance schedule data with class and subject names
+      const enhancedSchedule = await Promise.all(
+        result.data.map(async (seance) => {
+          // Get class name
+          const { data: classData } = await supabase
+            .from("classes")
+            .select("libelle")
+            .eq("id_class", seance.id_classe)
+            .single();
+
+          // Get subject name
+          const { data: subjectData } = await supabase
+            .from("matiere")
+            .select("libelle")
+            .eq("code_matiere", seance.code_matiere)
+            .single();
+
+          return {
+            ...seance,
+            class_libelle: classData?.libelle || seance.id_classe,
+            matiere_libelle: subjectData?.libelle || seance.code_matiere,
+          };
+        }),
+      );
+      setScheduleData(enhancedSchedule);
+    }
+  };
 
   const fetchClasses = async () => {
     const { data } = await supabase
@@ -72,12 +116,19 @@ export default function ScheduleScreen() {
       return;
     }
 
+    // Validate time
+    if (startTime >= endTime) {
+      Alert.alert("Erreur", "L'heure de début doit être avant l'heure de fin");
+      return;
+    }
+
     const seanceData = {
       id_classe: classId,
       jour: selectedDay,
       debut_heure: formatTime(startTime),
       fin_heure: formatTime(endTime),
       code_matiere: subjectCode,
+      user_id: user?.user_id,
     };
 
     const result = await createSchedule(seanceData);
@@ -85,10 +136,46 @@ export default function ScheduleScreen() {
     if (result.success) {
       Alert.alert("Succès", "Session ajoutée avec succès");
       setModalVisible(false);
-      fetchTeacherSchedule();
+      await loadSchedule();
       resetForm();
     } else {
       Alert.alert("Erreur", result.error);
+    }
+  };
+
+  const handleDeleteSeance = async () => {
+    if (!selectedSeance) {
+      Alert.alert("Erreur", "Aucune session sélectionnée");
+      return;
+    }
+
+    if (!deleteSchedule) {
+      Alert.alert("Erreur", "Fonction de suppression non disponible");
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      console.log("Deleting seance with ID:", selectedSeance.id);
+      const result = await deleteSchedule(selectedSeance.id);
+      console.log("Delete result:", result);
+
+      if (result.success) {
+        Alert.alert("Succès", "Session supprimée avec succès");
+        setDeleteModalVisible(false);
+        setSelectedSeance(null);
+        await loadSchedule(); // Refresh the schedule
+      } else {
+        Alert.alert(
+          "Erreur",
+          result.error || "Impossible de supprimer la session",
+        );
+      }
+    } catch (error) {
+      console.error("Error in handleDeleteSeance:", error);
+      Alert.alert("Erreur", "Une erreur est survenue lors de la suppression");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -102,8 +189,14 @@ export default function ScheduleScreen() {
     setEndTime(new Date());
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadSchedule();
+    setRefreshing(false);
+  };
+
   const getScheduleForDay = (day) => {
-    return schedule
+    return scheduleData
       .filter((s) => s.jour === day)
       .sort((a, b) => a.debut_heure.localeCompare(b.debut_heure));
   };
@@ -119,6 +212,23 @@ export default function ScheduleScreen() {
     setSubjectName(name);
     setShowSubjectDropdown(false);
   };
+
+  const openDeleteModal = (seance) => {
+    console.log("Opening delete modal for:", seance);
+    setSelectedSeance(seance);
+    setDeleteModalVisible(true);
+  };
+
+  if (loading && !scheduleData.length) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6c63ff" />
+        <Text style={styles.loadingText}>
+          Chargement de l&apos;emploi du temps...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -136,7 +246,12 @@ export default function ScheduleScreen() {
         </TouchableOpacity>
       </Animatable.View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {days.map((day, index) => {
           const daySchedule = getScheduleForDay(day);
           return (
@@ -165,12 +280,18 @@ export default function ScheduleScreen() {
                     </View>
                     <View style={styles.seanceDetails}>
                       <Text style={styles.className}>
-                        {seance.class_libelle || seance.id_classe}
+                        {seance.class_libelle}
                       </Text>
                       <Text style={styles.subjectName}>
-                        {seance.matiere_libelle || seance.code_matiere}
+                        {seance.matiere_libelle}
                       </Text>
                     </View>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => openDeleteModal(seance)}
+                    >
+                      <Icon name="delete-outline" size={20} color="#f44336" />
+                    </TouchableOpacity>
                   </View>
                 ))
               ) : (
@@ -183,11 +304,15 @@ export default function ScheduleScreen() {
         })}
       </ScrollView>
 
+      {/* Modal for adding seance */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={() => {
+          setModalVisible(false);
+          resetForm();
+        }}
       >
         <View style={styles.modalOverlay}>
           <Animatable.View animation="slideInUp" style={styles.modalContent}>
@@ -386,6 +511,65 @@ export default function ScheduleScreen() {
           </Animatable.View>
         </View>
       </Modal>
+
+      {/* Modal for delete confirmation */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={deleteModalVisible}
+        onRequestClose={() => setDeleteModalVisible(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <Animatable.View
+            animation="bounceIn"
+            style={styles.deleteModalContent}
+          >
+            <Icon name="warning" size={60} color="#f44336" />
+            <Text style={styles.deleteModalTitle}>
+              Confirmer la suppression
+            </Text>
+            <Text style={styles.deleteModalText}>
+              Voulez-vous vraiment supprimer cette session ?
+            </Text>
+            {selectedSeance && (
+              <View style={styles.seanceInfo}>
+                <Text style={styles.seanceInfoText}>
+                  {selectedSeance.class_libelle}
+                </Text>
+                <Text style={styles.seanceInfoText}>
+                  {selectedSeance.matiere_libelle}
+                </Text>
+                <Text style={styles.seanceInfoTime}>
+                  {selectedSeance.debut_heure} - {selectedSeance.fin_heure}
+                </Text>
+              </View>
+            )}
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteCancelButton]}
+                onPress={() => {
+                  setDeleteModalVisible(false);
+                  setSelectedSeance(null);
+                }}
+                disabled={deleting}
+              >
+                <Text style={styles.deleteCancelButtonText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteConfirmButton]}
+                onPress={handleDeleteSeance}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.deleteConfirmButtonText}>Supprimer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Animatable.View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -394,6 +578,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9ff",
+    paddingBottom: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9ff",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#6c63ff",
   },
   header: {
     flexDirection: "row",
@@ -471,6 +667,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#999",
     marginTop: 2,
+  },
+  deleteButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#ffebee",
   },
   emptyState: {
     padding: 30,
@@ -615,6 +816,78 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   saveButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  deleteModalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 20,
+    width: "80%",
+    alignItems: "center",
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  deleteModalText: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  seanceInfo: {
+    backgroundColor: "#f5f5f5",
+    padding: 15,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  seanceInfoText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 5,
+  },
+  seanceInfoTime: {
+    fontSize: 14,
+    color: "#6c63ff",
+    marginTop: 5,
+  },
+  deleteModalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  deleteModalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginHorizontal: 5,
+  },
+  deleteCancelButton: {
+    backgroundColor: "#f5f5f5",
+  },
+  deleteCancelButtonText: {
+    color: "#666",
+    fontSize: 16,
+  },
+  deleteConfirmButton: {
+    backgroundColor: "#f44336",
+  },
+  deleteConfirmButtonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",

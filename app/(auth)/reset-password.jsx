@@ -1,14 +1,14 @@
 import { router } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";

@@ -1,14 +1,16 @@
+// app/auth/forgot-password.jsx
 import { router } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -18,22 +20,53 @@ export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
-  const { resetPassword } = useAuth();
+  const { resetPassword, emailExists } = useAuth();
 
   const handleResetPassword = async () => {
     if (!email) {
-      alert("Veuillez entrer votre email");
+      Alert.alert("Erreur", "Veuillez entrer votre email");
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert("Erreur", "Veuillez entrer un email valide");
       return;
     }
 
     setLoading(true);
-    const result = await resetPassword(email);
-    setLoading(false);
 
-    if (result.success) {
-      setEmailSent(true);
-    } else {
-      alert(result.error);
+    try {
+      const exists = await emailExists(email);
+      if (!exists) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        Alert.alert(
+          "Email non trouvé",
+          "Cet email n'est pas associé à un compte. Veuillez vérifier votre email.",
+        );
+        return;
+      }
+
+      const result = await resetPassword(email);
+
+      if (result.success) {
+        setEmailSent(true);
+      } else {
+        Alert.alert(
+          "Erreur",
+          "Impossible d'envoyer l'email de réinitialisation. Veuillez réessayer.",
+        );
+        console.log("Reset password error:", result.error);
+      }
+    } catch (error) {
+      console.error("Error in handleResetPassword:", error);
+      Alert.alert(
+        "Erreur",
+        "Une erreur est survenue. Veuillez réessayer plus tard.",
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -50,9 +83,7 @@ export default function ForgotPasswordScreen() {
         <Icon name="lock-reset" size={70} color="#6c63ff" />
         <Text style={styles.title}>Mot de passe oublié?</Text>
         <Text style={styles.subtitle}>
-          {!emailSent
-            ? "Entrez votre email pour réinitialiser votre mot de passe"
-            : "Un email de réinitialisation a été envoyé"}
+          Entrez votre email pour réinitialiser votre mot de passe
         </Text>
       </Animatable.View>
 
@@ -79,11 +110,13 @@ export default function ForgotPasswordScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
+                editable={!loading}
               />
             </View>
 
             <TouchableOpacity
-              style={styles.resetButton}
+              style={[styles.resetButton, loading && styles.disabledButton]}
               onPress={handleResetPassword}
               disabled={loading}
             >
@@ -103,8 +136,11 @@ export default function ForgotPasswordScreen() {
             >
               <Icon name="check-circle" size={80} color="#4CAF50" />
             </Animatable.View>
-            <Text style={styles.successText}>
-              Consultez votre boîte email pour réinitialiser votre mot de passe
+            <Text style={styles.successText}>Email envoyé!</Text>
+            <Text style={styles.successSubtext}>
+              Un lien de réinitialisation a été envoyé à {email}.{"\n\n"}📧
+              Vérifiez votre boîte de réception (et vos spams).
+              {"\n"}🔗 Le lien est valable 24 heures.
             </Text>
           </>
         )}
@@ -112,6 +148,7 @@ export default function ForgotPasswordScreen() {
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
+          disabled={loading}
         >
           <Text style={styles.backButtonText}>Retour à la connexion</Text>
         </TouchableOpacity>
@@ -173,11 +210,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
     elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   resetButtonText: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "bold",
+  },
+  disabledButton: {
+    opacity: 0.7,
   },
   backButton: {
     marginTop: 20,
@@ -186,6 +230,7 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: "#6c63ff",
     fontSize: 16,
+    fontWeight: "500",
   },
   successIcon: {
     alignItems: "center",
@@ -193,8 +238,16 @@ const styles = StyleSheet.create({
   },
   successText: {
     textAlign: "center",
-    fontSize: 16,
-    color: "#333",
+    fontSize: 18,
+    color: "#4CAF50",
+    marginBottom: 10,
+    fontWeight: "bold",
+  },
+  successSubtext: {
+    textAlign: "center",
+    fontSize: 14,
+    color: "#666",
     marginBottom: 20,
+    lineHeight: 20,
   },
 });

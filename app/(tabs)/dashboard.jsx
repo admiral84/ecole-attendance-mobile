@@ -189,6 +189,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#6c63ff",
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
+    marginBottom: 40,
   },
   greeting: {
     fontSize: 14,
