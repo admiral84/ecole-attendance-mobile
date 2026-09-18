@@ -1,6 +1,12 @@
-// ScheduleScreen.js - Fixed version with working delete
+// ScheduleScreen.js
+// Fixed version:
+// - Prevents infinite refresh loop
+// - Waits for authenticated teacher
+// - Works with memoized useTeacher.js
+// - Keeps working delete functionality
+
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,94 +20,243 @@ import {
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
+
 import { useAuth } from "../../hooks/useAuth";
 import { useTeacher } from "../../hooks/useTeacher";
 import { supabase } from "../../services/supabase";
 
 export default function ScheduleScreen() {
   const { user } = useAuth();
-  const {
-    schedule,
-    fetchTeacherSchedule,
-    loading,
-    createSchedule,
-    deleteSchedule,
-  } = useTeacher(user?.user_id || "");
 
+  // ---------------------------------------------------------
+  // Teacher hook
+  // ---------------------------------------------------------
+  const { fetchTeacherSchedule, loading, createSchedule, deleteSchedule } =
+    useTeacher(user?.user_id || "");
+
+  // ---------------------------------------------------------
+  // Modal state
+  // ---------------------------------------------------------
   const [modalVisible, setModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+
   const [selectedSeance, setSelectedSeance] = useState(null);
+
+  // ---------------------------------------------------------
+  // Form state
+  // ---------------------------------------------------------
   const [selectedDay, setSelectedDay] = useState("");
+
   const [startTime, setStartTime] = useState(new Date());
   const [endTime, setEndTime] = useState(new Date());
+
   const [classId, setClassId] = useState("");
   const [classLibelle, setClassLibelle] = useState("");
+
   const [subjectCode, setSubjectCode] = useState("");
   const [subjectName, setSubjectName] = useState("");
+
+  // ---------------------------------------------------------
+  // Data
+  // ---------------------------------------------------------
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [scheduleData, setScheduleData] = useState([]);
+
+  // ---------------------------------------------------------
+  // Pickers / dropdowns
+  // ---------------------------------------------------------
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+
   const [showClassDropdown, setShowClassDropdown] = useState(false);
+
   const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
+
+  // ---------------------------------------------------------
+  // UI state
+  // ---------------------------------------------------------
   const [refreshing, setRefreshing] = useState(false);
-  const [scheduleData, setScheduleData] = useState([]);
   const [deleting, setDeleting] = useState(false);
 
+  // ---------------------------------------------------------
+  // Days
+  // ---------------------------------------------------------
   const days = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 
+  // =========================================================
+  // LOAD SCHEDULE
+  // =========================================================
+
+  const loadSchedule = useCallback(async () => {
+    // IMPORTANT:
+    // Do not make the request until authentication has
+    // finished loading and we have a teacher ID.
+    if (!user?.user_id) {
+      console.log("⏳ ScheduleScreen: waiting for teacher user...");
+
+      return;
+    }
+
+    try {
+      console.log(
+        "📅 ScheduleScreen: loading schedule for teacher:",
+        user.user_id,
+      );
+
+      const result = await fetchTeacherSchedule();
+
+      console.log("📦 ScheduleScreen result:", result);
+
+      if (result?.success && result.data) {
+        const enhancedSchedule = await Promise.all(
+          result.data.map(async (seance) => {
+            let classLibelleValue = seance.id_classe;
+            let matiereLibelleValue = seance.code_matiere;
+
+            // -----------------------------------------------
+            // Get class name
+            // -----------------------------------------------
+            try {
+              const { data: classData, error: classError } = await supabase
+                .from("classes")
+                .select("libelle")
+                .eq("id_class", seance.id_classe)
+                .single();
+
+              if (classError) {
+                console.log("⚠️ Could not fetch class:", classError.message);
+              }
+
+              if (classData?.libelle) {
+                classLibelleValue = classData.libelle;
+              }
+            } catch (error) {
+              console.error("Error fetching class:", error);
+            }
+
+            // -----------------------------------------------
+            // Get subject name
+            // -----------------------------------------------
+            try {
+              const { data: subjectData, error: subjectError } = await supabase
+                .from("matiere")
+                .select("libelle")
+                .eq("code_matiere", seance.code_matiere)
+                .single();
+
+              if (subjectError) {
+                console.log(
+                  "⚠️ Could not fetch subject:",
+                  subjectError.message,
+                );
+              }
+
+              if (subjectData?.libelle) {
+                matiereLibelleValue = subjectData.libelle;
+              }
+            } catch (error) {
+              console.error("Error fetching subject:", error);
+            }
+
+            return {
+              ...seance,
+              class_libelle: classLibelleValue,
+              matiere_libelle: matiereLibelleValue,
+            };
+          }),
+        );
+
+        setScheduleData(enhancedSchedule);
+
+        console.log("✅ Schedule loaded:", enhancedSchedule.length);
+      } else {
+        console.log("ℹ️ No schedule returned");
+
+        setScheduleData([]);
+      }
+    } catch (error) {
+      console.error("❌ Error loading schedule:", error);
+    }
+  }, [user?.user_id, fetchTeacherSchedule]);
+
+  // =========================================================
+  // FETCH CLASSES
+  // =========================================================
+
+  const fetchClasses = useCallback(async () => {
+    try {
+      console.log("📚 Loading classes...");
+
+      const { data, error } = await supabase
+        .from("classes")
+        .select("*")
+        .order("libelle");
+
+      if (error) {
+        console.error("❌ Error fetching classes:", error);
+
+        return;
+      }
+
+      setClasses(data || []);
+
+      console.log("✅ Classes loaded:", data?.length || 0);
+    } catch (error) {
+      console.error("❌ Error fetching classes:", error);
+    }
+  }, []);
+
+  // =========================================================
+  // FETCH SUBJECTS
+  // =========================================================
+
+  const fetchSubjects = useCallback(async () => {
+    try {
+      console.log("📚 Loading subjects...");
+
+      const { data, error } = await supabase
+        .from("matiere")
+        .select("*")
+        .order("code_matiere");
+
+      if (error) {
+        console.error("❌ Error fetching subjects:", error);
+
+        return;
+      }
+
+      setSubjects(data || []);
+
+      console.log("✅ Subjects loaded:", data?.length || 0);
+    } catch (error) {
+      console.error("❌ Error fetching subjects:", error);
+    }
+  }, []);
+
+  // =========================================================
+  // INITIAL LOADING
+  // =========================================================
+
   useEffect(() => {
+    // IMPORTANT:
+    // Wait for useAuth() to provide the teacher.
+    if (!user?.user_id) {
+      console.log("⏳ ScheduleScreen: waiting for user...");
+
+      return;
+    }
+
+    console.log("🚀 ScheduleScreen: initial loading...");
+
     fetchClasses();
     fetchSubjects();
     loadSchedule();
-  }, []);
+  }, [user?.user_id, fetchClasses, fetchSubjects, loadSchedule]);
 
-  const loadSchedule = async () => {
-    const result = await fetchTeacherSchedule();
-    if (result?.success && result.data) {
-      // Enhance schedule data with class and subject names
-      const enhancedSchedule = await Promise.all(
-        result.data.map(async (seance) => {
-          // Get class name
-          const { data: classData } = await supabase
-            .from("classes")
-            .select("libelle")
-            .eq("id_class", seance.id_classe)
-            .single();
-
-          // Get subject name
-          const { data: subjectData } = await supabase
-            .from("matiere")
-            .select("libelle")
-            .eq("code_matiere", seance.code_matiere)
-            .single();
-
-          return {
-            ...seance,
-            class_libelle: classData?.libelle || seance.id_classe,
-            matiere_libelle: subjectData?.libelle || seance.code_matiere,
-          };
-        }),
-      );
-      setScheduleData(enhancedSchedule);
-    }
-  };
-
-  const fetchClasses = async () => {
-    const { data } = await supabase
-      .from("classes")
-      .select("*")
-      .order("libelle");
-    if (data) setClasses(data);
-  };
-
-  const fetchSubjects = async () => {
-    const { data } = await supabase
-      .from("matiere")
-      .select("*")
-      .order("code_matiere");
-    if (data) setSubjects(data);
-  };
+  // =========================================================
+  // FORMAT TIME
+  // =========================================================
 
   const formatTime = (time) => {
     return time.toLocaleTimeString("fr-FR", {
@@ -110,15 +265,26 @@ export default function ScheduleScreen() {
     });
   };
 
+  // =========================================================
+  // ADD SCHEDULE
+  // =========================================================
+
   const handleAddSeance = async () => {
     if (!selectedDay || !classId || !subjectCode) {
       Alert.alert("Erreur", "Veuillez remplir tous les champs");
+
       return;
     }
 
-    // Validate time
     if (startTime >= endTime) {
       Alert.alert("Erreur", "L'heure de début doit être avant l'heure de fin");
+
+      return;
+    }
+
+    if (!user?.user_id) {
+      Alert.alert("Erreur", "Utilisateur non authentifié");
+
       return;
     }
 
@@ -128,72 +294,139 @@ export default function ScheduleScreen() {
       debut_heure: formatTime(startTime),
       fin_heure: formatTime(endTime),
       code_matiere: subjectCode,
-      user_id: user?.user_id,
+      user_id: user.user_id,
     };
 
-    const result = await createSchedule(seanceData);
+    console.log("➕ Creating schedule:", seanceData);
 
-    if (result.success) {
-      Alert.alert("Succès", "Session ajoutée avec succès");
-      setModalVisible(false);
-      await loadSchedule();
-      resetForm();
-    } else {
-      Alert.alert("Erreur", result.error);
+    try {
+      const result = await createSchedule(seanceData);
+
+      console.log("📦 Create schedule result:", result);
+
+      if (result?.success) {
+        Alert.alert("Succès", "Session ajoutée avec succès");
+
+        setModalVisible(false);
+
+        resetForm();
+
+        // Reload schedule after creation
+        await loadSchedule();
+      } else {
+        Alert.alert(
+          "Erreur",
+          result?.error || "Impossible d'ajouter la session",
+        );
+      }
+    } catch (error) {
+      console.error("❌ Error adding schedule:", error);
+
+      Alert.alert("Erreur", "Une erreur est survenue lors de l'ajout");
     }
   };
+
+  // =========================================================
+  // DELETE SCHEDULE
+  // =========================================================
 
   const handleDeleteSeance = async () => {
     if (!selectedSeance) {
       Alert.alert("Erreur", "Aucune session sélectionnée");
+
+      return;
+    }
+
+    if (!selectedSeance.id) {
+      console.error("❌ Selected seance has no ID:", selectedSeance);
+
+      Alert.alert("Erreur", "Identifiant de la session introuvable");
+
       return;
     }
 
     if (!deleteSchedule) {
       Alert.alert("Erreur", "Fonction de suppression non disponible");
+
       return;
     }
 
     setDeleting(true);
-    try {
-      console.log("Deleting seance with ID:", selectedSeance.id);
-      const result = await deleteSchedule(selectedSeance.id);
-      console.log("Delete result:", result);
 
-      if (result.success) {
+    try {
+      console.log("🗑️ Deleting seance with ID:", selectedSeance.id);
+
+      const result = await deleteSchedule(selectedSeance.id);
+
+      console.log("📦 Delete result:", result);
+
+      if (result?.success) {
         Alert.alert("Succès", "Session supprimée avec succès");
+
         setDeleteModalVisible(false);
         setSelectedSeance(null);
-        await loadSchedule(); // Refresh the schedule
+
+        // Reload schedule after deletion
+        await loadSchedule();
       } else {
         Alert.alert(
           "Erreur",
-          result.error || "Impossible de supprimer la session",
+          result?.error || "Impossible de supprimer la session",
         );
       }
     } catch (error) {
-      console.error("Error in handleDeleteSeance:", error);
+      console.error("❌ Error in handleDeleteSeance:", error);
+
       Alert.alert("Erreur", "Une erreur est survenue lors de la suppression");
     } finally {
       setDeleting(false);
     }
   };
 
+  // =========================================================
+  // RESET FORM
+  // =========================================================
+
   const resetForm = () => {
     setSelectedDay("");
+
     setClassId("");
     setClassLibelle("");
+
     setSubjectCode("");
     setSubjectName("");
+
     setStartTime(new Date());
     setEndTime(new Date());
+
+    setShowClassDropdown(false);
+    setShowSubjectDropdown(false);
+
+    setShowStartPicker(false);
+    setShowEndPicker(false);
   };
 
+  // =========================================================
+  // REFRESH
+  // =========================================================
+
   const onRefresh = async () => {
+    if (!user?.user_id) {
+      return;
+    }
+
     setRefreshing(true);
-    await loadSchedule();
-    setRefreshing(false);
+
+    try {
+      await loadSchedule();
+    } finally {
+      setRefreshing(false);
+    }
   };
+
+  // =========================================================
+  // GET SCHEDULE FOR DAY
+  // =========================================================
 
   const getScheduleForDay = (day) => {
     return scheduleData
@@ -201,50 +434,88 @@ export default function ScheduleScreen() {
       .sort((a, b) => a.debut_heure.localeCompare(b.debut_heure));
   };
 
+  // =========================================================
+  // SELECT CLASS
+  // =========================================================
+
   const selectClass = (id, libelle) => {
     setClassId(id);
     setClassLibelle(libelle);
+
     setShowClassDropdown(false);
   };
+
+  // =========================================================
+  // SELECT SUBJECT
+  // =========================================================
 
   const selectSubject = (code, name) => {
     setSubjectCode(code);
     setSubjectName(name);
+
     setShowSubjectDropdown(false);
   };
 
+  // =========================================================
+  // OPEN DELETE MODAL
+  // =========================================================
+
   const openDeleteModal = (seance) => {
-    console.log("Opening delete modal for:", seance);
+    console.log("🗑️ Opening delete modal for:", seance);
+
     setSelectedSeance(seance);
     setDeleteModalVisible(true);
   };
 
-  if (loading && !scheduleData.length) {
+  // =========================================================
+  // LOADING SCREEN
+  // =========================================================
+
+  if (!user?.user_id || (loading && !scheduleData.length)) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6c63ff" />
+
         <Text style={styles.loadingText}>
-          Chargement de l&apos;emploi du temps...
+          {!user?.user_id
+            ? "Chargement de l'utilisateur..."
+            : "Chargement de l'emploi du temps..."}
         </Text>
       </View>
     );
   }
 
+  // =========================================================
+  // UI
+  // =========================================================
+
   return (
     <View style={styles.container}>
+      {/* =====================================================
+          HEADER
+      ====================================================== */}
+
       <Animatable.View
         animation="fadeInDown"
         duration={1000}
         style={styles.header}
       >
         <Text style={styles.title}>Mon Emploi du Temps</Text>
+
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setModalVisible(true)}
+          onPress={() => {
+            resetForm();
+            setModalVisible(true);
+          }}
         >
           <Icon name="add" size={24} color="#fff" />
         </TouchableOpacity>
       </Animatable.View>
+
+      {/* =====================================================
+          SCHEDULE
+      ====================================================== */}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -254,6 +525,7 @@ export default function ScheduleScreen() {
       >
         {days.map((day, index) => {
           const daySchedule = getScheduleForDay(day);
+
           return (
             <Animatable.View
               key={day}
@@ -265,6 +537,7 @@ export default function ScheduleScreen() {
                 <Text style={styles.dayName}>
                   {day.charAt(0).toUpperCase() + day.slice(1)}
                 </Text>
+
                 <Text style={styles.sessionCount}>
                   {daySchedule.length} session(s)
                 </Text>
@@ -272,20 +545,33 @@ export default function ScheduleScreen() {
 
               {daySchedule.length > 0 ? (
                 daySchedule.map((seance, idx) => (
-                  <View key={idx} style={styles.seanceItem}>
+                  <View
+                    key={
+                      seance.id || `${seance.id_classe}-${seance.jour}-${idx}`
+                    }
+                    style={styles.seanceItem}
+                  >
+                    {/* Time */}
                     <View style={styles.timeContainer}>
                       <Text style={styles.timeText}>{seance.debut_heure}</Text>
+
                       <Icon name="arrow-forward" size={16} color="#999" />
+
                       <Text style={styles.timeText}>{seance.fin_heure}</Text>
                     </View>
+
+                    {/* Details */}
                     <View style={styles.seanceDetails}>
                       <Text style={styles.className}>
                         {seance.class_libelle}
                       </Text>
+
                       <Text style={styles.subjectName}>
                         {seance.matiere_libelle}
                       </Text>
                     </View>
+
+                    {/* Delete */}
                     <TouchableOpacity
                       style={styles.deleteButton}
                       onPress={() => openDeleteModal(seance)}
@@ -304,7 +590,10 @@ export default function ScheduleScreen() {
         })}
       </ScrollView>
 
-      {/* Modal for adding seance */}
+      {/* =====================================================
+          ADD SESSION MODAL
+      ====================================================== */}
+
       <Modal
         animationType="slide"
         transparent={true}
@@ -319,7 +608,9 @@ export default function ScheduleScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.modalTitle}>Ajouter une session</Text>
 
+              {/* Day */}
               <Text style={styles.label}>Jour</Text>
+
               <View style={styles.daySelector}>
                 {days.map((day) => (
                   <TouchableOpacity
@@ -342,19 +633,24 @@ export default function ScheduleScreen() {
                 ))}
               </View>
 
+              {/* Class */}
               <Text style={styles.label}>Classe</Text>
+
               <View style={styles.dropdownContainer}>
                 <TouchableOpacity
                   style={styles.dropdownButton}
                   onPress={() => {
                     setShowClassDropdown(!showClassDropdown);
+
                     setShowSubjectDropdown(false);
                   }}
                 >
                   <Icon name="class" size={20} color="#6c63ff" />
+
                   <Text style={styles.dropdownButtonText}>
                     {classLibelle || "Sélectionner une classe"}
                   </Text>
+
                   <Icon
                     name={
                       showClassDropdown ? "arrow-drop-up" : "arrow-drop-down"
@@ -381,6 +677,7 @@ export default function ScheduleScreen() {
                           <Text style={styles.dropdownItemText}>
                             {item.libelle}
                           </Text>
+
                           <Text style={styles.dropdownItemSubtext}>
                             ({item.id_class})
                           </Text>
@@ -391,19 +688,24 @@ export default function ScheduleScreen() {
                 )}
               </View>
 
+              {/* Subject */}
               <Text style={styles.label}>Matière</Text>
+
               <View style={styles.dropdownContainer}>
                 <TouchableOpacity
                   style={styles.dropdownButton}
                   onPress={() => {
                     setShowSubjectDropdown(!showSubjectDropdown);
+
                     setShowClassDropdown(false);
                   }}
                 >
                   <Icon name="menu-book" size={20} color="#6c63ff" />
+
                   <Text style={styles.dropdownButtonText}>
                     {subjectName || "Sélectionner une matière"}
                   </Text>
+
                   <Icon
                     name={
                       showSubjectDropdown ? "arrow-drop-up" : "arrow-drop-down"
@@ -433,6 +735,7 @@ export default function ScheduleScreen() {
                           <Text style={styles.dropdownItemText}>
                             {item.libelle || item.code_matiere}
                           </Text>
+
                           <Text style={styles.dropdownItemSubtext}>
                             ({item.code_matiere})
                           </Text>
@@ -443,13 +746,16 @@ export default function ScheduleScreen() {
                 )}
               </View>
 
+              {/* Time */}
               <Text style={styles.label}>Horaire</Text>
+
               <View style={styles.timeRow}>
                 <TouchableOpacity
                   style={styles.timeButton}
                   onPress={() => setShowStartPicker(true)}
                 >
                   <Icon name="access-time" size={20} color="#6c63ff" />
+
                   <Text style={styles.timeButtonText}>
                     Début: {formatTime(startTime)}
                   </Text>
@@ -460,12 +766,14 @@ export default function ScheduleScreen() {
                   onPress={() => setShowEndPicker(true)}
                 >
                   <Icon name="access-time" size={20} color="#6c63ff" />
+
                   <Text style={styles.timeButtonText}>
                     Fin: {formatTime(endTime)}
                   </Text>
                 </TouchableOpacity>
               </View>
 
+              {/* Start time picker */}
               {showStartPicker && (
                 <DateTimePicker
                   value={startTime}
@@ -473,11 +781,15 @@ export default function ScheduleScreen() {
                   is24Hour={true}
                   onChange={(event, selectedDate) => {
                     setShowStartPicker(false);
-                    if (selectedDate) setStartTime(selectedDate);
+
+                    if (selectedDate) {
+                      setStartTime(selectedDate);
+                    }
                   }}
                 />
               )}
 
+              {/* End time picker */}
               {showEndPicker && (
                 <DateTimePicker
                   value={endTime}
@@ -485,11 +797,15 @@ export default function ScheduleScreen() {
                   is24Hour={true}
                   onChange={(event, selectedDate) => {
                     setShowEndPicker(false);
-                    if (selectedDate) setEndTime(selectedDate);
+
+                    if (selectedDate) {
+                      setEndTime(selectedDate);
+                    }
                   }}
                 />
               )}
 
+              {/* Modal buttons */}
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
@@ -500,6 +816,7 @@ export default function ScheduleScreen() {
                 >
                   <Text style={styles.cancelButtonText}>Annuler</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[styles.modalButton, styles.saveButton]}
                   onPress={handleAddSeance}
@@ -512,12 +829,20 @@ export default function ScheduleScreen() {
         </View>
       </Modal>
 
-      {/* Modal for delete confirmation */}
+      {/* =====================================================
+          DELETE CONFIRMATION MODAL
+      ====================================================== */}
+
       <Modal
         animationType="fade"
         transparent={true}
         visible={deleteModalVisible}
-        onRequestClose={() => setDeleteModalVisible(false)}
+        onRequestClose={() => {
+          if (!deleting) {
+            setDeleteModalVisible(false);
+            setSelectedSeance(null);
+          }
+        }}
       >
         <View style={styles.deleteModalOverlay}>
           <Animatable.View
@@ -525,36 +850,44 @@ export default function ScheduleScreen() {
             style={styles.deleteModalContent}
           >
             <Icon name="warning" size={60} color="#f44336" />
+
             <Text style={styles.deleteModalTitle}>
               Confirmer la suppression
             </Text>
+
             <Text style={styles.deleteModalText}>
               Voulez-vous vraiment supprimer cette session ?
             </Text>
+
             {selectedSeance && (
               <View style={styles.seanceInfo}>
                 <Text style={styles.seanceInfoText}>
                   {selectedSeance.class_libelle}
                 </Text>
+
                 <Text style={styles.seanceInfoText}>
                   {selectedSeance.matiere_libelle}
                 </Text>
+
                 <Text style={styles.seanceInfoTime}>
                   {selectedSeance.debut_heure} - {selectedSeance.fin_heure}
                 </Text>
               </View>
             )}
+
             <View style={styles.deleteModalButtons}>
               <TouchableOpacity
                 style={[styles.deleteModalButton, styles.deleteCancelButton]}
                 onPress={() => {
                   setDeleteModalVisible(false);
+
                   setSelectedSeance(null);
                 }}
                 disabled={deleting}
               >
                 <Text style={styles.deleteCancelButtonText}>Annuler</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[styles.deleteModalButton, styles.deleteConfirmButton]}
                 onPress={handleDeleteSeance}
@@ -574,23 +907,30 @@ export default function ScheduleScreen() {
   );
 }
 
+// =========================================================
+// STYLES
+// =========================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9ff",
     paddingBottom: 40,
   },
+
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#f8f9ff",
   },
+
   loadingText: {
     marginTop: 10,
     fontSize: 16,
     color: "#6c63ff",
   },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -600,16 +940,19 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     backgroundColor: "#6c63ff",
   },
+
   title: {
     fontSize: 24,
     fontWeight: "bold",
     color: "#fff",
   },
+
   addButton: {
     backgroundColor: "rgba(255,255,255,0.2)",
     padding: 10,
     borderRadius: 10,
   },
+
   dayContainer: {
     marginHorizontal: 20,
     marginTop: 20,
@@ -618,6 +961,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     elevation: 2,
   },
+
   dayHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -625,15 +969,18 @@ const styles = StyleSheet.create({
     padding: 15,
     backgroundColor: "#f0f0ff",
   },
+
   dayName: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#6c63ff",
   },
+
   sessionCount: {
     fontSize: 14,
     color: "#999",
   },
+
   seanceItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -641,6 +988,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
+
   timeContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -649,43 +997,52 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
   },
+
   timeText: {
     fontSize: 14,
     color: "#6c63ff",
     marginHorizontal: 4,
   },
+
   seanceDetails: {
     flex: 1,
     marginLeft: 15,
   },
+
   className: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
   },
+
   subjectName: {
     fontSize: 14,
     color: "#999",
     marginTop: 2,
   },
+
   deleteButton: {
     padding: 8,
     borderRadius: 8,
     backgroundColor: "#ffebee",
   },
+
   emptyState: {
     padding: 30,
     alignItems: "center",
   },
+
   emptyText: {
     color: "#999",
     fontSize: 14,
   },
+
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
+
   modalContent: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 30,
@@ -693,6 +1050,7 @@ const styles = StyleSheet.create({
     padding: 20,
     maxHeight: "90%",
   },
+
   modalTitle: {
     fontSize: 24,
     fontWeight: "bold",
@@ -700,6 +1058,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     textAlign: "center",
   },
+
   label: {
     fontSize: 16,
     fontWeight: "600",
@@ -707,31 +1066,38 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 15,
   },
+
   daySelector: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 15,
   },
+
   dayOption: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
     backgroundColor: "#f5f5f5",
   },
+
   dayOptionSelected: {
     backgroundColor: "#6c63ff",
   },
+
   dayOptionText: {
     color: "#666",
     fontSize: 14,
   },
+
   dayOptionTextSelected: {
     color: "#fff",
   },
+
   dropdownContainer: {
     marginBottom: 15,
     zIndex: 1000,
   },
+
   dropdownButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -740,12 +1106,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     height: 50,
   },
+
   dropdownButtonText: {
     flex: 1,
     marginLeft: 10,
     fontSize: 16,
     color: "#333",
   },
+
   dropdownList: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -754,9 +1122,11 @@ const styles = StyleSheet.create({
     borderColor: "#e0e0e0",
     maxHeight: 200,
   },
+
   dropdownScroll: {
     maxHeight: 200,
   },
+
   dropdownItem: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -766,19 +1136,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
+
   dropdownItemText: {
     fontSize: 16,
     color: "#333",
   },
+
   dropdownItemSubtext: {
     fontSize: 12,
     color: "#999",
   },
+
   timeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 15,
   },
+
   timeButton: {
     flex: 0.48,
     flexDirection: "row",
@@ -787,45 +1161,54 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
   },
+
   timeButtonText: {
     marginLeft: 10,
     fontSize: 14,
     color: "#333",
   },
+
   modalButtons: {
     flexDirection: "row",
     marginTop: 30,
     marginBottom: 20,
   },
+
   modalButton: {
     flex: 1,
     padding: 15,
     borderRadius: 12,
     alignItems: "center",
   },
+
   cancelButton: {
     backgroundColor: "#f5f5f5",
     marginRight: 10,
   },
+
   cancelButtonText: {
     color: "#666",
     fontSize: 16,
   },
+
   saveButton: {
     backgroundColor: "#6c63ff",
     marginLeft: 10,
   },
+
   saveButtonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
   },
+
   deleteModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
   },
+
   deleteModalContent: {
     backgroundColor: "#fff",
     borderRadius: 20,
@@ -833,6 +1216,7 @@ const styles = StyleSheet.create({
     width: "80%",
     alignItems: "center",
   },
+
   deleteModalTitle: {
     fontSize: 20,
     fontWeight: "bold",
@@ -840,12 +1224,14 @@ const styles = StyleSheet.create({
     marginTop: 15,
     marginBottom: 10,
   },
+
   deleteModalText: {
     fontSize: 16,
     color: "#666",
     textAlign: "center",
     marginBottom: 15,
   },
+
   seanceInfo: {
     backgroundColor: "#f5f5f5",
     padding: 15,
@@ -854,22 +1240,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 20,
   },
+
   seanceInfoText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 5,
   },
+
   seanceInfoTime: {
     fontSize: 14,
     color: "#6c63ff",
     marginTop: 5,
   },
+
   deleteModalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
     width: "100%",
   },
+
   deleteModalButton: {
     flex: 1,
     padding: 12,
@@ -877,16 +1267,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginHorizontal: 5,
   },
+
   deleteCancelButton: {
     backgroundColor: "#f5f5f5",
   },
+
   deleteCancelButtonText: {
     color: "#666",
     fontSize: 16,
   },
+
   deleteConfirmButton: {
     backgroundColor: "#f44336",
   },
+
   deleteConfirmButtonText: {
     color: "#fff",
     fontSize: 16,

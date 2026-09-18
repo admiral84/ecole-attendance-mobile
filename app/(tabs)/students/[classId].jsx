@@ -35,7 +35,8 @@ const StudentCard = ({ student, onPress, onMarkAbsent, onMarkReturn }) => (
       <View style={styles.studentDetails}>
         <Text style={styles.studentName}>{student.nom}</Text>
         <Text style={styles.studentId}>ID: {student.id_eleve}</Text>
-        <Text style={styles.parentInfo}>Parent: {student.pere || "N/A"}</Text>
+        <Text style={styles.studentId}>numéro: {student.num}</Text>
+        <Text style={styles.parentInfo}>Père: {student.pere || "N/A"}</Text>
         {!student.present && student.currentAbsence && (
           <Text style={styles.absenceInfo}>
             Absent depuis le{" "}
@@ -71,14 +72,8 @@ const StudentCard = ({ student, onPress, onMarkAbsent, onMarkReturn }) => (
 export default function StudentsScreen() {
   const { classId } = useLocalSearchParams();
   const { user } = useAuth();
-  const {
-    students,
-    fetchStudentsByClass,
-    markAbsence,
-    markPresent,
-    loading,
-    getStudentCurrentAbsence,
-  } = useTeacher(user?.user_id || "");
+  const { fetchStudentsByClass, markAbsence, markPresent, loading } =
+    useTeacher(user?.user_id || "");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);

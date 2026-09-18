@@ -21,12 +21,16 @@ export default function DashboardScreen() {
     fetchTeacherClasses,
     fetchTeacherSchedule,
     loading,
-  } = useTeacher(user?.user_id || "");
+  } = useTeacher(user?.user_id);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
+    if (!user?.user_id) {
+      return;
+    }
+
     loadData();
-  }, []);
+  }, [user?.user_id]);
 
   const loadData = async () => {
     await Promise.all([fetchTeacherClasses(), fetchTeacherSchedule()]);

@@ -1,202 +1,115 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase";
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export const useAuth = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState(null);
+  const [token, setToken] = useState(null);
 
   useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        // Get initial session
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
-        // Only clear session if there's a specific invalid refresh token error
-        if (error) {
-          // Check if it's the invalid refresh token error
-          if (
-            error.message?.includes("Invalid Refresh Token") ||
-            error.status === 400
-          ) {
-            console.log("Invalid refresh token detected, clearing session");
-            await supabase.auth.signOut();
-            setSession(null);
-            setUser(null);
-          } else {
-            // Other errors, just log them
-            console.error("Session retrieval error:", error);
-          }
-        } else if (session?.user) {
-          // Valid session exists
-          setSession(session);
-          await fetchUser(session.user.id);
-        }
-      } catch (error) {
-        console.error("Error getting session:", error);
-        // Don't automatically clear on all errors
-        if (error.message?.includes("Refresh Token Not Found")) {
-          await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initializeAuth();
-
-    // Listen for auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-
-        if (session?.user) {
-          await fetchUser(session.user.id);
-        } else {
-          setUser(null);
-        }
-        setLoading(false);
-      },
-    );
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
+    loadStoredData();
   }, []);
 
-  const fetchUser = async (userId) => {
+  const loadStoredData = async () => {
     try {
-      const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
+      const storedToken = await AsyncStorage.getItem("auth_token");
+      const storedUser = await AsyncStorage.getItem("user");
 
-      if (!error && data) {
-        setUser(data);
-      } else if (error) {
-        console.error("Error fetching user:", error);
+      if (storedToken && storedUser) {
+        setToken(storedToken);
+        setUser(JSON.parse(storedUser));
       }
     } catch (error) {
-      console.error("Error in fetchUser:", error);
+      console.error("Error loading data:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
   const login = async (email, password) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (error) throw error;
+      const data = await response.json();
 
-      if (data.user) {
-        await fetchUser(data.user.id);
+      if (data.success) {
+        await AsyncStorage.setItem("auth_token", data.token);
+        await AsyncStorage.setItem("user", JSON.stringify(data.user));
+        setToken(data.token);
+        setUser(data.user);
+
+        // Return the token along with success
+        return { success: true, token: data.token, user: data.user };
       }
 
-      return { success: true, data };
+      return { success: false, error: data.error };
     } catch (error) {
       console.error("Login error:", error);
       return { success: false, error: error.message };
     }
   };
 
-  const register = async (userData) => {
+  const register = async (requestData) => {
     try {
-      // First create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userData.email,
-        password: userData.password,
+      const response = await fetch(`${API_BASE_URL}/api/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestData),
       });
 
-      if (authError) throw authError;
-
-      if (authData.user) {
-        // Then create user profile
-        const { error: profileError } = await supabase.from("users").insert([
-          {
-            user_id: authData.user.id,
-            matricule: userData.matricule,
-            nom: userData.nom,
-            prenom: userData.prenom,
-            role: "teacher",
-            phone: userData.phone,
-            email: userData.email,
-            code_matiere: userData.code_matiere,
-            approved: false,
-          },
-        ]);
-
-        if (profileError) throw profileError;
-      }
-
-      return { success: true };
+      const data = await response.json();
+      return data; // The backend already returns { success, error }
     } catch (error) {
       console.error("Register error:", error);
       return { success: false, error: error.message };
     }
   };
+
   const emailExists = async (email) => {
     try {
-      const { data, error } = await supabase
-        .from("users")
-        .select("email")
-        .eq("email", email)
-        .maybeSingle();
+      const response = await fetch(`${API_BASE_URL}/api/check-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
 
-      if (error) {
-        console.error("Error checking email:", error);
-        return false; // or throw error depending on your needs
-      }
-
-      // Returns true if data exists (email found), false otherwise
-      return data !== null;
+      const data = await response.json();
+      return data.exists;
     } catch (error) {
-      console.error("Unexpected error:", error);
+      console.error("Email exists error:", error);
       return false;
     }
   };
 
   const resetPassword = async (email) => {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "ecole-attendance-mobile://reset-password",
+      const response = await fetch(`${API_BASE_URL}/api/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
       });
 
-      if (error) throw error;
-      return { success: true };
+      const data = await response.json();
+      return data;
     } catch (error) {
       console.error("Reset password error:", error);
       return { success: false, error: error.message };
     }
   };
 
-  const updatePassword = async (newPassword) => {
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (error) throw error;
-      return { success: true };
-    } catch (error) {
-      console.error("Update password error:", error);
-      return { success: false, error: error.message };
-    }
-  };
-
   const logout = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      await fetch(`${API_BASE_URL}/api/logout`, { method: "POST" });
+      await AsyncStorage.removeItem("auth_token");
+      await AsyncStorage.removeItem("user");
+      setToken(null);
       setUser(null);
-      setSession(null);
       return { success: true };
     } catch (error) {
       console.error("Logout error:", error);
@@ -206,13 +119,14 @@ export const useAuth = () => {
 
   return {
     user,
-    session,
+    token,
     loading,
     login,
     register,
-    resetPassword,
     emailExists,
-    updatePassword,
+    resetPassword,
     logout,
+    isAuthenticated: !!user,
+    isApproved: user?.approved || false,
   };
 };

@@ -17,7 +17,6 @@ import {
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useAuth } from "../../hooks/useAuth";
-import { supabase } from "../../services/supabase";
 
 // Configure notification handler
 Notifications.setNotificationHandler({
@@ -33,19 +32,16 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { login, user, loading: authLoading } = useAuth();
+  const { login, user, loading: authLoading } = useAuth(); // Removed unused 'token'
 
   // Check if running in Expo Go (development mode)
   const isExpoGo = Constants.appOwnership === "expo";
 
-  // Register device token function
-  const registerDeviceToken = async (userId) => {
-    // BYPASS: Skip token registration in Expo Go
-
+  // Register device token function - UPDATED to use Worker API
+  const registerDeviceToken = async (userId, authToken) => {
     try {
       console.log("========== DEVICE TOKEN REGISTRATION START ==========");
       console.log("User ID:", userId);
-      console.log("User ID type:", typeof userId);
 
       // Check if device is physical (not simulator)
       if (!Device.isDevice) {
@@ -100,38 +96,37 @@ export default function LoginScreen() {
       const deviceName = `${Device.deviceName || "Unknown"} - ${Device.osName || "Unknown"}`;
       console.log("Device name:", deviceName);
 
-      // Save to Supabase device_tokens table
-      console.log("Attempting to save to Supabase...");
+      // Save to your Worker API instead of Supabase directly
+      const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
-      const { data, error } = await supabase
-        .from("device_tokens")
-        .upsert(
-          {
-            user_id: userId,
-            expo_token: expoToken,
-            device_name: deviceName,
-            last_active: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+      const response = await fetch(
+        `${API_BASE_URL}/api/notifications/register-token`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
           },
-          {
-            onConflict: "expo_token",
-          },
-        )
-        .select();
+          body: JSON.stringify({
+            userId: userId,
+            expoToken: expoToken,
+            deviceName: deviceName,
+          }),
+        },
+      );
 
-      if (error) {
-        console.error("ERROR saving device token:", error);
-        console.error("Error details:", JSON.stringify(error, null, 2));
-        Alert.alert("Database Error", `Error: ${error.message}`);
-        return false;
-      } else {
-        console.log("SUCCESS! Device token saved:", data);
+      const result = await response.json();
+
+      if (result.success) {
+        console.log("SUCCESS! Device token saved via Worker");
         console.log("========== DEVICE TOKEN REGISTRATION END ==========");
         return true;
+      } else {
+        console.error("ERROR saving device token:", result.error);
+        return false;
       }
     } catch (error) {
       console.error("CATCH ERROR:", error);
-      // Don't show alert in development mode
       if (!isExpoGo) {
         Alert.alert("Error", `Unexpected error: ${error.message}`);
       }
@@ -157,58 +152,58 @@ export default function LoginScreen() {
 
     const result = await login(email, password);
     console.log("Login result:", result);
+    console.log("Result keys:", Object.keys(result));
 
     if (result.success) {
       console.log("Login successful!");
 
-      // Get the current authenticated user directly from Supabase
-      const {
-        data: { user: currentUser },
-        error: userError,
-      } = await supabase.auth.getUser();
+      // Try to get token from different possible locations in the result
+      const authToken =
+        result.token || result.data?.token || result.user?.token;
+      const userId =
+        result.user?.user_id || result.user?.id || result.data?.user?.id;
 
-      if (userError) {
-        console.error("Error getting current user:", userError);
-        Alert.alert("Erreur", "Impossible de récupérer l'utilisateur");
-        setLoading(false);
-        return;
-      }
+      console.log(
+        "Auth token found:",
+        authToken ? `Yes (length: ${authToken.length})` : "No",
+      );
+      console.log("User ID found:", userId || "No");
 
-      if (currentUser) {
-        console.log("Current user ID:", currentUser.id);
-        console.log("Current user email:", currentUser.email);
-
-        // WAIT for device token registration to complete
-        const tokenRegistered = await registerDeviceToken(currentUser.id);
-        console.log("Token registration result:", tokenRegistered);
-
-        if (tokenRegistered) {
-          console.log(
-            "Token registered successfully, navigating to dashboard...",
-          );
-        } else {
-          console.log("Token registration failed, but continuing...");
-        }
+      if (authToken && userId) {
+        // Register device token using Worker API
+        await registerDeviceToken(userId, authToken);
       } else {
-        console.log("No current user found");
+        console.log("No auth token or user ID found in result");
+        console.log("Full result structure:", JSON.stringify(result, null, 2));
+
+        // Optional: Show alert but still allow login
+        if (!isExpoGo) {
+          Alert.alert(
+            "Attention",
+            "Connexion réussie mais impossible d'enregistrer les notifications",
+          );
+        }
       }
 
       // Navigate after token registration is complete
       router.replace("/(tabs)/dashboard");
     } else {
       console.error("Login failed:", result.error);
-      Alert.alert("Erreur de connexion", result.error);
+      Alert.alert(
+        "Erreur de connexion",
+        result.error || "Une erreur est survenue",
+      );
     }
 
     setLoading(false);
   };
 
   const handleForgotPassword = () => {
-    router.push("forgot-password");
+    router.push("/forgot-password");
   };
 
   const handleRegister = () => {
-    router.push("register");
+    router.push("/register");
   };
 
   // Show loading screen while checking auth

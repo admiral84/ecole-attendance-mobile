@@ -1,20 +1,24 @@
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useAuth } from "../../hooks/useAuth";
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export default function RegisterScreen() {
   const [formData, setFormData] = useState({
@@ -26,25 +30,83 @@ export default function RegisterScreen() {
     password: "",
     confirmPassword: "",
     code_matiere: "",
+    selectedSubjectName: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [subjects, setSubjects] = useState([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(true);
+  const [showSubjectModal, setShowSubjectModal] = useState(false);
   const { register } = useAuth();
 
+  useEffect(() => {
+    fetchSubjects();
+  }, []);
+
+  const fetchSubjects = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/subjects`);
+      const data = await response.json();
+
+      if (data.success) {
+        setSubjects(data.subjects);
+        console.log("Subjects loaded:", data.subjects.length);
+      } else {
+        console.error("Failed to fetch subjects:", data.error);
+        Alert.alert("Erreur", "Impossible de charger les matières");
+      }
+    } catch (error) {
+      console.error("Error fetching subjects:", error);
+      Alert.alert("Erreur", "Impossible de charger les matières");
+    } finally {
+      setSubjectsLoading(false);
+    }
+  };
+
   const handleChange = (field, value) => {
-    setFormData({ ...formData, [field]: value });
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubjectSelect = (subject) => {
+    console.log("Selected subject:", subject);
+    // Update both fields at once
+    setFormData((prev) => ({
+      ...prev,
+      code_matiere: subject.code_matiere,
+      selectedSubjectName: subject.libelle,
+    }));
+    setShowSubjectModal(false);
   };
 
   const handleRegister = async () => {
-    const { password, confirmPassword, ...userData } = formData;
+    const {
+      password,
+      confirmPassword,
+      matricule,
+      nom,
+      prenom,
+      email,
+      phone,
+      code_matiere,
+    } = formData;
+
+    console.log("Form data before validation:", {
+      matricule,
+      nom,
+      prenom,
+      email,
+      phone,
+      code_matiere,
+      password: password ? "***" : "empty",
+    });
 
     if (
-      !userData.matricule ||
-      !userData.nom ||
-      !userData.prenom ||
-      !userData.email ||
-      !userData.phone ||
-      !userData.code_matiere ||
+      !matricule ||
+      !nom ||
+      !prenom ||
+      !email ||
+      !phone ||
+      !code_matiere ||
       !password
     ) {
       Alert.alert("Erreur", "Veuillez remplir tous les champs");
@@ -65,19 +127,52 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
-    const result = await register({ ...userData, password });
+
+    const requestData = {
+      email: email,
+      password: password,
+      userData: {
+        matricule: matricule,
+        nom: nom,
+        prenom: prenom,
+        phone: phone,
+        code_matiere: code_matiere,
+      },
+    };
+
+    console.log("Sending registration data:", requestData);
+
+    const result = await register(requestData);
     setLoading(false);
 
     if (result.success) {
       Alert.alert(
         "Inscription réussie!",
-        "Votre compte a été créé. En attente d&apos;approbation par l&apos;administrateur.",
+        "Votre compte a été créé. En attente d'approbation par l'administrateur.",
         [{ text: "OK", onPress: () => router.replace("/(auth)/login") }],
       );
     } else {
-      Alert.alert("Erreur", result.error);
+      Alert.alert("Erreur", result.error || "Une erreur est survenue");
     }
   };
+
+  const renderSubjectItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.subjectItem}
+      onPress={() => handleSubjectSelect(item)}
+    >
+      <Icon
+        name="menu-book"
+        size={20}
+        color="#6c63ff"
+        style={styles.subjectIcon}
+      />
+      <View style={styles.subjectInfo}>
+        <Text style={styles.subjectName}>{item.libelle}</Text>
+        <Text style={styles.subjectCode}>Code: {item.code_matiere}</Text>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <KeyboardAvoidingView
@@ -155,15 +250,36 @@ export default function RegisterScreen() {
             />
           </View>
 
-          <View style={styles.inputContainer}>
-            <Icon name="subject" size={20} color="#6c63ff" />
-            <TextInput
-              style={styles.input}
-              placeholder="Code Matière"
-              value={formData.code_matiere}
-              onChangeText={(text) => handleChange("code_matiere", text)}
-            />
-          </View>
+          {/* Subject Selector */}
+          <TouchableOpacity
+            style={styles.inputContainer}
+            onPress={() => setShowSubjectModal(true)}
+            disabled={subjectsLoading}
+          >
+            <Icon name="menu-book" size={20} color="#6c63ff" />
+            <View style={styles.subjectSelector}>
+              {subjectsLoading ? (
+                <ActivityIndicator size="small" color="#6c63ff" />
+              ) : formData.selectedSubjectName ? (
+                <Text style={styles.selectedSubjectName}>
+                  {formData.selectedSubjectName}
+                </Text>
+              ) : (
+                <Text style={styles.placeholderText}>
+                  Sélectionner une matière
+                </Text>
+              )}
+            </View>
+            <Icon name="arrow-drop-down" size={24} color="#6c63ff" />
+          </TouchableOpacity>
+
+          {/* Debug: Show selected code */}
+          {formData.code_matiere ? (
+            <Text style={styles.debugText}>
+              ✓ Matière sélectionnée: {formData.selectedSubjectName} (Code:{" "}
+              {formData.code_matiere})
+            </Text>
+          ) : null}
 
           <View style={styles.inputContainer}>
             <Icon name="lock" size={20} color="#6c63ff" />
@@ -174,6 +290,13 @@ export default function RegisterScreen() {
               onChangeText={(text) => handleChange("password", text)}
               secureTextEntry={!showPassword}
             />
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <Icon
+                name={showPassword ? "visibility" : "visibility-off"}
+                size={20}
+                color="#999"
+              />
+            </TouchableOpacity>
           </View>
 
           <View style={styles.inputContainer}>
@@ -195,7 +318,7 @@ export default function RegisterScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.registerButtonText}>S&apos;inscrire</Text>
+              <Text style={styles.registerButtonText}>S&aposinscrire</Text>
             )}
           </TouchableOpacity>
 
@@ -207,6 +330,40 @@ export default function RegisterScreen() {
           </View>
         </Animatable.View>
       </ScrollView>
+
+      {/* Subject Selection Modal */}
+      <Modal
+        visible={showSubjectModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSubjectModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choisir une matière</Text>
+              <TouchableOpacity onPress={() => setShowSubjectModal(false)}>
+                <Icon name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {subjects.length > 0 ? (
+              <FlatList
+                data={subjects}
+                renderItem={renderSubjectItem}
+                keyExtractor={(item) => item.code_matiere}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalList}
+              />
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Icon name="info-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyText}>Aucune matière disponible</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -258,6 +415,26 @@ const styles = StyleSheet.create({
   halfInput: {
     flex: 0.48,
   },
+  subjectSelector: {
+    flex: 1,
+    marginLeft: 10,
+    justifyContent: "center",
+  },
+  selectedSubjectName: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "500",
+  },
+  placeholderText: {
+    fontSize: 16,
+    color: "#999",
+  },
+  debugText: {
+    fontSize: 12,
+    color: "#4CAF50",
+    marginBottom: 10,
+    marginLeft: 10,
+  },
   registerButton: {
     backgroundColor: "#6c63ff",
     borderRadius: 12,
@@ -285,5 +462,66 @@ const styles = StyleSheet.create({
     color: "#6c63ff",
     fontSize: 14,
     fontWeight: "bold",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "80%",
+    minHeight: "50%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  modalList: {
+    paddingBottom: 20,
+  },
+  subjectItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  subjectIcon: {
+    marginRight: 15,
+  },
+  subjectInfo: {
+    flex: 1,
+  },
+  subjectName: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "500",
+  },
+  subjectCode: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 2,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#999",
+    marginTop: 10,
   },
 });

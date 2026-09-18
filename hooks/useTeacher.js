@@ -1,401 +1,744 @@
-import { useState } from "react";
-import { supabase } from "../services/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
+import { useCallback, useState } from "react";
 
-export const useTeacher = (teacherId) => {
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+
+// --------------------------------------------------
+// Decode JWT payload
+// --------------------------------------------------
+const decodeJwtPayload = (token) => {
+  try {
+    const parts = token.split(".");
+
+    if (parts.length !== 3) {
+      console.error("❌ Invalid JWT format");
+      return null;
+    }
+
+    // JWT payload is Base64URL encoded
+    const base64Url = parts[1];
+
+    // Convert Base64URL to Base64
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+
+    // Add required padding
+    const paddedBase64 = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+
+    const jsonPayload = atob(paddedBase64);
+
+    return JSON.parse(jsonPayload);
+  } catch (error) {
+    console.error("❌ Failed to decode JWT:", error);
+    return null;
+  }
+};
+
+// --------------------------------------------------
+// Check whether token is expired
+// --------------------------------------------------
+const isTokenExpired = (token) => {
+  const payload = decodeJwtPayload(token);
+
+  if (!payload) {
+    console.error("❌ Could not read token expiration");
+    return true;
+  }
+
+  if (!payload.exp) {
+    console.error("❌ Token does not contain exp");
+    return true;
+  }
+
+  const expirationTime = payload.exp * 1000;
+  const currentTime = Date.now();
+
+  const expirationDate = new Date(expirationTime);
+
+  console.log("⏰ Token expiration:", expirationDate.toLocaleString());
+
+  console.log("🕐 Current time:", new Date(currentTime).toLocaleString());
+
+  const remainingSeconds = Math.floor((expirationTime - currentTime) / 1000);
+
+  console.log("⏳ Token time remaining:", remainingSeconds, "seconds");
+
+  if (currentTime >= expirationTime) {
+    console.log("❌ TOKEN EXPIRED");
+    return true;
+  }
+
+  console.log("✅ TOKEN IS VALID");
+
+  return false;
+};
+
+// --------------------------------------------------
+// Handle expired authentication
+// --------------------------------------------------
+const handleExpiredToken = async () => {
+  try {
+    console.log("🚪 Removing expired authentication token...");
+
+    await AsyncStorage.removeItem("auth_token");
+
+    // Optional: remove other authentication data
+    // if your app stores any of these.
+    // await AsyncStorage.removeItem("user");
+
+    console.log("✅ Expired token removed");
+
+    console.log("🔄 Redirecting to login...");
+
+    router.replace("/login");
+  } catch (error) {
+    console.error("❌ Error handling expired token:", error);
+
+    // Try redirect anyway
+    router.replace("/login");
+  }
+};
+
+// --------------------------------------------------
+// Get authentication token
+// --------------------------------------------------
+const getAuthToken = async () => {
+  const token = await AsyncStorage.getItem("auth_token");
+
+  console.log(
+    "🔑 Token retrieved:",
+    token ? "✅ Token exists" : "❌ No token found",
+  );
+
+  if (!token) {
+    return null;
+  }
+
+  console.log("Token preview:", token.substring(0, 20) + "...");
+
+  // --------------------------------------------------
+  // Check token expiration
+  // --------------------------------------------------
+  const expired = isTokenExpired(token);
+
+  if (expired) {
+    console.log("🚨 Authentication token has expired");
+
+    await handleExpiredToken();
+
+    return null;
+  }
+
+  return token;
+};
+
+// --------------------------------------------------
+// useTeacher hook
+// --------------------------------------------------
+export const useTeacher = (user_id) => {
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchTeacherClasses = async () => {
-    if (!teacherId) return;
+  // --------------------------------------------------
+  // Common API request
+  // --------------------------------------------------
+  const apiRequest = useCallback(async (endpoint, options = {}) => {
+    const token = await getAuthToken();
 
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from("seance")
-        .select(
-          `
-          id_classe,
-          classes:classes(id_class, libelle, nbstudent)
-        `,
-        )
-        .eq("user_id", teacherId);
-
-      if (error) throw error;
-
-      if (data) {
-        const uniqueClasses = Array.from(
-          new Map(data.map((item) => [item.id_classe, item.classes])).values(),
-        ).filter((c) => c !== null);
-        setClasses(uniqueClasses);
-      }
-    } catch (error) {
-      setError(error.message);
-      console.error("Error fetching classes:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStudentsByClass = async (classId) => {
-    if (!classId) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      // Fetch students from the class
-      const { data: studentsData, error: studentsError } = await supabase
-        .from("eleve")
-        .select("*")
-        .eq("id_class", classId)
-        .order("nom", { ascending: true });
-
-      if (studentsError) throw studentsError;
-
-      // Get today's date
-      const today = new Date().toISOString().split("T")[0];
-
-      // Fetch all active absences (without end date/time) for these students
-      const studentIds = studentsData.map((s) => s.id_eleve);
-      const { data: absencesData, error: absencesError } = await supabase
-        .from("absence")
-        .select("*")
-        .in("id_eleve", studentIds.length > 0 ? studentIds : [""])
-        .is("date_fin", null) // Only get absences that haven't ended
-        .is("heure_fin", null);
-
-      if (absencesError) throw absencesError;
-
-      // Mark students as present or absent based on active absence records
-      const studentsWithStatus = studentsData.map((student) => {
-        const isCurrentlyAbsent = absencesData?.some(
-          (absence) => absence.id_eleve === student.id_eleve,
-        );
-        return {
-          ...student,
-          present: !isCurrentlyAbsent, // Present if no active absence
-          currentAbsence: absencesData?.find(
-            (absence) => absence.id_eleve === student.id_eleve,
-          ),
-        };
-      });
-
-      setStudents(studentsWithStatus);
-      return { success: true, data: studentsWithStatus };
-    } catch (error) {
-      setError(error.message);
-      console.error("Error fetching students:", error);
-      return { success: false, error: error.message };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTeacherSchedule = async () => {
-    if (!teacherId) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from("seance")
-        .select(
-          `
-          *,
-          matiere:code_matiere(*),
-          classe:id_classe(*)
-        `,
-        )
-        .eq("user_id", teacherId)
-        .order("jour", { ascending: true })
-        .order("debut_heure", { ascending: true });
-
-      if (error) throw error;
-      setSchedule(data || []);
-      return { success: true, data };
-    } catch (error) {
-      setError(error.message);
-      console.error("Error fetching schedule:", error);
-      return { success: false, error: error.message };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const markAbsence = async (student, date, time, isFullDay = false) => {
-    try {
-      // Check if there's already an active absence for this student (without end date)
-      const { data: existingAbsence, error: checkError } = await supabase
-        .from("absence")
-        .select("*")
-        .eq("id_eleve", student.id_eleve)
-        .is("date_fin", null)
-        .is("heure_fin", null)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-
-      // If student is already absent, don't create a new absence
-      if (existingAbsence) {
-        return {
-          success: false,
-          error:
-            "Cet élève est déjà marqué absent. Veuillez d'abord enregistrer son retour.",
-        };
-      }
-
-      // Prepare absence data
-      const absenceData = {
-        id_eleve: student.id_eleve,
-        id_classe: student.id_class,
-        date_deb: date,
-        heure_deb: isFullDay ? null : time,
-        date_fin: null, // Null means still absent
-        heure_fin: null, // Null means still absent
-        justified: false,
-        marked_by: teacherId,
-        present: false,
-      };
-
-      // Create new absence record
-      const { data, error } = await supabase
-        .from("absence")
-        .insert([absenceData])
-        .select();
-
-      if (error) throw error;
-
-      // Create notification for parents (optional)
-      try {
-        const notificationData = {
-          student_id: student.id_eleve,
-          class_id: student.id_class,
-          absence_date: date,
-          absence_time: time,
-          is_justified: false,
-          status: "pending",
-          teacher_id: teacherId,
-        };
-
-        await supabase.from("absence_notifications").insert([notificationData]);
-      } catch (notificationError) {
-        console.error("Error creating notification:", notificationError);
-        // Don't fail the main operation if notification fails
-      }
-
-      // Update local state
-      setStudents((prevStudents) =>
-        prevStudents.map((s) =>
-          s.id_eleve === student.id_eleve
-            ? { ...s, present: false, currentAbsence: data?.[0] }
-            : s,
-        ),
-      );
-
-      return { success: true, data: data?.[0] };
-    } catch (error) {
-      console.error("Error marking absence:", error);
-      return { success: false, error: error.message };
-    }
-  };
-
-  const markPresent = async (student, returnDate, returnTime) => {
-    try {
-      // Find the active absence record (without end date/time)
-      const { data: activeAbsence, error: findError } = await supabase
-        .from("absence")
-        .select("*")
-        .eq("id_eleve", student.id_eleve)
-        .is("date_fin", null)
-        .is("heure_fin", null)
-        .maybeSingle();
-
-      if (findError) throw findError;
-
-      if (!activeAbsence) {
-        return {
-          success: false,
-          error: "Aucune absence active trouvée pour cet élève",
-        };
-      }
-
-      // Update the absence record with return date and time
-      const { data, error } = await supabase
-        .from("absence")
-        .update({
-          date_fin: returnDate,
-          heure_fin: returnTime,
-          present: true,
-        })
-        .eq("id", activeAbsence.id)
-        .select();
-
-      if (error) throw error;
-
-      // Update local state
-      setStudents((prevStudents) =>
-        prevStudents.map((s) =>
-          s.id_eleve === student.id_eleve
-            ? { ...s, present: true, currentAbsence: null }
-            : s,
-        ),
-      );
-
-      return { success: true, data: data?.[0] };
-    } catch (error) {
-      console.error("Error marking present:", error);
-      return { success: false, error: error.message };
-    }
-  };
-
-  const createSchedule = async (scheduleData) => {
-    try {
-      const { error } = await supabase.from("seance").insert([
-        {
-          ...scheduleData,
-          user_id: teacherId,
-        },
-      ]);
-
-      if (error) throw error;
-      return { success: true };
-    } catch (error) {
-      console.error("Error creating schedule:", error);
-      return { success: false, error: error.message };
-    }
-  };
-
-  const deleteSchedule = async (seanceId) => {
-    try {
-      const { error } = await supabase
-        .from("seance")
-        .delete()
-        .eq("id", seanceId)
-        .eq("user_id", teacherId); // Add teacherId for security
-
-      if (error) throw error;
-      return { success: true };
-    } catch (error) {
-      console.error("Error deleting schedule:", error);
-      return { success: false, error: error.message };
-    }
-  };
-
-  const fetchAbsencesByDate = async (date, classId = null) => {
-    try {
-      setLoading(true);
-      let query = supabase
-        .from("absence")
-        .select(
-          `
-          *,
-          eleve:id_eleve (*)
-        `,
-        )
-        .lte("date_deb", date)
-        .or(`date_fin.is.null,date_fin.gte.${date}`);
-
-      if (classId) {
-        query = query.eq("id_classe", classId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error("Error fetching absences:", error);
-      return { success: false, error: error.message };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const justifyAbsence = async (absenceId, justified = true) => {
-    try {
-      const { data, error } = await supabase
-        .from("absence")
-        .update({ justified })
-        .eq("id", absenceId)
-        .select();
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error("Error justifying absence:", error);
-      return { success: false, error: error.message };
-    }
-  };
-
-  const getStudentAbsenceHistory = async (studentId, startDate, endDate) => {
-    try {
-      const { data, error } = await supabase
-        .from("absence")
-        .select("*")
-        .eq("id_eleve", studentId)
-        .gte("date_deb", startDate)
-        .lte("date_deb", endDate)
-        .order("date_deb", { ascending: false });
-
-      if (error) throw error;
-
-      const totalAbsences = data.length;
-      const justifiedAbsences = data.filter((a) => a.justified).length;
-      const unjustifiedAbsences = totalAbsences - justifiedAbsences;
-      const currentAbsences = data.filter((a) => !a.date_fin).length;
+    // If token is missing or expired,
+    // getAuthToken() already redirected to login.
+    if (!token) {
+      console.log("🚫 API request cancelled: no valid token");
 
       return {
-        success: true,
-        data: {
-          total: totalAbsences,
-          justified: justifiedAbsences,
-          unjustified: unjustifiedAbsences,
-          current: currentAbsences,
-          absences: data,
-        },
+        success: false,
+        error: "Authentication required",
       };
-    } catch (error) {
-      console.error("Error fetching student absence history:", error);
-      return { success: false, error: error.message };
     }
-  };
 
-  const getStudentCurrentAbsence = async (studentId) => {
+    console.log("📡 Making request to:", `${API_BASE_URL}${endpoint}`);
+
+    console.log("🔐 Has token:", !!token);
+    console.log("📝 Method:", options.method || "GET");
+
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    };
+
     try {
-      const { data, error } = await supabase
-        .from("absence")
-        .select("*")
-        .eq("id_eleve", studentId)
-        .is("date_fin", null)
-        .is("heure_fin", null)
-        .maybeSingle();
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
 
-      if (error) throw error;
-      return { success: true, data };
+      console.log("📊 Response status:", response.status);
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        console.error("❌ Failed to parse response:", jsonError);
+
+        throw new Error(`Invalid server response (${response.status})`);
+      }
+
+      console.log("📦 Response data:", data);
+
+      // --------------------------------------------------
+      // Worker rejected the token
+      // --------------------------------------------------
+      if (response.status === 401) {
+        console.log("🚨 Server rejected authentication token");
+
+        await handleExpiredToken();
+
+        return {
+          success: false,
+          error: "Authentication session expired",
+        };
+      }
+
+      if (!response.ok) {
+        console.error("❌ Request failed with status:", response.status);
+
+        return {
+          success: false,
+          error: data?.error || `Request failed with status ${response.status}`,
+        };
+      }
+
+      return data;
     } catch (error) {
-      console.error("Error fetching current absence:", error);
-      return { success: false, error: error.message };
-    }
-  };
+      console.error("❌ Network error:", error.message);
 
+      throw error;
+    }
+  }, []);
+
+  // --------------------------------------------------
+  // Fetch teacher classes
+  // --------------------------------------------------
+  const fetchTeacherClasses = useCallback(async () => {
+    if (!user_id) {
+      console.log("⚠️ No user_id provided");
+
+      return {
+        success: false,
+        error: "No user_id provided",
+      };
+    }
+
+    console.log("📚 Fetching classes for teacher:", user_id);
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await apiRequest(`/api/teacher/classes/${user_id}`, {
+        method: "GET",
+      });
+
+      if (result.success) {
+        console.log("✅ Classes fetched:", result.classes?.length || 0);
+
+        setClasses(result.classes || []);
+
+        return {
+          success: true,
+          data: result.classes || [],
+        };
+      }
+
+      throw new Error(result.error || "Failed to fetch classes");
+    } catch (error) {
+      setError(error.message);
+
+      console.error("❌ Error fetching classes:", error);
+
+      return {
+        success: false,
+        error: error.message,
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, [user_id, apiRequest]);
+
+  // --------------------------------------------------
+  // Fetch students by class
+  // --------------------------------------------------
+  const fetchStudentsByClass = useCallback(
+    async (classId) => {
+      if (!classId) {
+        console.log("⚠️ No classId provided");
+
+        return {
+          success: false,
+          error: "No classId provided",
+        };
+      }
+
+      console.log("👨‍🎓 Fetching students for class:", classId);
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const result = await apiRequest(`/api/teacher/students/${classId}`, {
+          method: "GET",
+        });
+
+        if (result.success) {
+          const studentsData = result.students || [];
+
+          setStudents(studentsData);
+
+          return {
+            success: true,
+            data: studentsData,
+          };
+        }
+
+        throw new Error(result.error || "Failed to fetch students");
+      } catch (error) {
+        setError(error.message);
+
+        console.error("❌ Error fetching students:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiRequest],
+  );
+
+  // --------------------------------------------------
+  // Fetch teacher schedule
+  // --------------------------------------------------
+  const fetchTeacherSchedule = useCallback(async () => {
+    if (!user_id) {
+      console.log("⚠️ No user_id provided for schedule");
+
+      return {
+        success: false,
+        error: "No user_id provided",
+      };
+    }
+
+    console.log("📅 Fetching schedule for teacher:", user_id);
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await apiRequest(`/api/teacher/schedule/${user_id}`, {
+        method: "GET",
+      });
+
+      if (result.success) {
+        const scheduleData = result.schedule || [];
+
+        console.log("✅ Schedule fetched:", scheduleData.length);
+
+        setSchedule(scheduleData);
+
+        return {
+          success: true,
+          data: scheduleData,
+        };
+      }
+
+      throw new Error(result.error || "Failed to fetch schedule");
+    } catch (error) {
+      setError(error.message);
+
+      console.error("❌ Error fetching schedule:", error);
+
+      return {
+        success: false,
+        error: error.message,
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, [user_id, apiRequest]);
+
+  // --------------------------------------------------
+  // Mark student absent
+  // --------------------------------------------------
+  const markAbsence = useCallback(
+    async (student, date, time, isFullDay = false) => {
+      try {
+        const result = await apiRequest("/api/teacher/mark-absence", {
+          method: "POST",
+          body: JSON.stringify({
+            studentId: student.id_eleve,
+            classId: student.id_class,
+            date,
+            time,
+            isFullDay,
+            teacherId: user_id,
+          }),
+        });
+
+        if (result.success) {
+          setStudents((prevStudents) =>
+            prevStudents.map((s) =>
+              s.id_eleve === student.id_eleve
+                ? {
+                    ...s,
+                    present: false,
+                    currentAbsence: result.absence,
+                  }
+                : s,
+            ),
+          );
+
+          return {
+            success: true,
+            data: result.absence,
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Failed to mark student absent",
+        };
+      } catch (error) {
+        console.error("❌ Error marking absence:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest, user_id],
+  );
+
+  // --------------------------------------------------
+  // Mark student present
+  // --------------------------------------------------
+  const markPresent = useCallback(
+    async (student, returnDate, returnTime) => {
+      try {
+        const result = await apiRequest("/api/teacher/mark-present", {
+          method: "POST",
+          body: JSON.stringify({
+            studentId: student.id_eleve,
+            returnDate,
+            returnTime,
+          }),
+        });
+
+        if (result.success) {
+          setStudents((prevStudents) =>
+            prevStudents.map((s) =>
+              s.id_eleve === student.id_eleve
+                ? {
+                    ...s,
+                    present: true,
+                    currentAbsence: null,
+                  }
+                : s,
+            ),
+          );
+
+          return {
+            success: true,
+            data: result.absence,
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Failed to mark student present",
+        };
+      } catch (error) {
+        console.error("❌ Error marking present:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest],
+  );
+
+  // --------------------------------------------------
+  // Create schedule
+  // --------------------------------------------------
+  const createSchedule = useCallback(
+    async (scheduleData) => {
+      try {
+        const result = await apiRequest("/api/teacher/schedule", {
+          method: "POST",
+          body: JSON.stringify({
+            ...scheduleData,
+            user_id,
+          }),
+        });
+
+        if (result.success) {
+          return {
+            success: true,
+            data: result,
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Failed to create schedule",
+        };
+      } catch (error) {
+        console.error("❌ Error creating schedule:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest, user_id],
+  );
+
+  // --------------------------------------------------
+  // Delete schedule
+  // --------------------------------------------------
+
+  const deleteSchedule = useCallback(
+    async (seanceId) => {
+      if (!seanceId) {
+        return {
+          success: false,
+          error: "No seance ID provided",
+        };
+      }
+
+      try {
+        console.log("🗑️ Deleting seance:", seanceId);
+
+        console.log("👨‍🏫 Teacher ID:", user_id);
+
+        const result = await apiRequest(`/api/teacher/schedule/${seanceId}`, {
+          method: "DELETE",
+        });
+
+        console.log("📦 Delete API response:", result);
+
+        if (result?.success) {
+          console.log("✅ Seance deleted successfully");
+
+          return {
+            success: true,
+            data: result,
+          };
+        }
+
+        return {
+          success: false,
+          error: result?.error || "Failed to delete schedule",
+        };
+      } catch (error) {
+        console.error("❌ Error deleting schedule:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest, user_id],
+  );
+
+  // --------------------------------------------------
+  // Fetch absences by date
+  // --------------------------------------------------
+  const fetchAbsencesByDate = useCallback(
+    async (date, classId = null) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        let endpoint = `/api/teacher/absences?date=` + encodeURIComponent(date);
+
+        if (classId) {
+          endpoint += `&classId=` + encodeURIComponent(classId);
+        }
+
+        const result = await apiRequest(endpoint, {
+          method: "GET",
+        });
+
+        if (result.success) {
+          return {
+            success: true,
+            data: result.absences || [],
+          };
+        }
+
+        throw new Error(result.error || "Failed to fetch absences");
+      } catch (error) {
+        console.error("❌ Error fetching absences:", error);
+
+        setError(error.message);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiRequest],
+  );
+
+  // --------------------------------------------------
+  // Justify absence
+  // --------------------------------------------------
+  const justifyAbsence = useCallback(
+    async (absenceId, justified = true) => {
+      try {
+        const result = await apiRequest("/api/teacher/justify-absence", {
+          method: "PUT",
+          body: JSON.stringify({
+            absenceId,
+            justified,
+          }),
+        });
+
+        if (result.success) {
+          return {
+            success: true,
+            data: result.absence,
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Failed to justify absence",
+        };
+      } catch (error) {
+        console.error("❌ Error justifying absence:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest],
+  );
+
+  // --------------------------------------------------
+  // Get student absence history
+  // --------------------------------------------------
+  const getStudentAbsenceHistory = useCallback(
+    async (studentId, startDate, endDate) => {
+      try {
+        const result = await apiRequest(
+          `/api/teacher/student-absences/${studentId}?startDate=${encodeURIComponent(
+            startDate,
+          )}&endDate=${encodeURIComponent(endDate)}`,
+          {
+            method: "GET",
+          },
+        );
+
+        if (result.success) {
+          return {
+            success: true,
+            data: result.history || [],
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Failed to fetch absence history",
+        };
+      } catch (error) {
+        console.error("❌ Error fetching student absence history:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest],
+  );
+
+  // --------------------------------------------------
+  // Get student's current absence
+  // --------------------------------------------------
+  const getStudentCurrentAbsence = useCallback(
+    async (studentId) => {
+      try {
+        const result = await apiRequest(
+          `/api/teacher/student-current-absence/${studentId}`,
+          {
+            method: "GET",
+          },
+        );
+
+        if (result.success) {
+          return {
+            success: true,
+            data: result.absence,
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Failed to fetch current absence",
+        };
+      } catch (error) {
+        console.error("❌ Error fetching current absence:", error);
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest],
+  );
+
+  // --------------------------------------------------
+  // Return hook API
+  // --------------------------------------------------
   return {
     classes,
     students,
     schedule,
     loading,
     error,
+
     fetchTeacherClasses,
     fetchStudentsByClass,
     fetchTeacherSchedule,
+
     markAbsence,
     markPresent,
+
     createSchedule,
     deleteSchedule,
+
     fetchAbsencesByDate,
     justifyAbsence,
+
     getStudentAbsenceHistory,
     getStudentCurrentAbsence,
   };

@@ -51,7 +51,13 @@ export default function ForgotPasswordScreen() {
       const result = await resetPassword(email);
 
       if (result.success) {
-        setEmailSent(true);
+        console.log("redirecting to verify otp");
+        router.push({
+          pathname: "/verifyOtp",
+          params: {
+            email: email.trim(),
+          },
+        });
       } else {
         Alert.alert(
           "Erreur",
@@ -138,9 +144,9 @@ export default function ForgotPasswordScreen() {
             </Animatable.View>
             <Text style={styles.successText}>Email envoyé!</Text>
             <Text style={styles.successSubtext}>
-              Un lien de réinitialisation a été envoyé à {email}.{"\n\n"}📧
-              Vérifiez votre boîte de réception (et vos spams).
-              {"\n"}🔗 Le lien est valable 24 heures.
+              Un code OTP à 8 chiffres a été envoyé à {email}.{"\n\n"}📧
+              Vérifiez votre boîte de réception (et vos spams).{"\n"}⏱️ Le code
+              est valable 10 minutes.
             </Text>
           </>
         )}
