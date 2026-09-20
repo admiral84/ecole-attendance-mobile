@@ -12,7 +12,6 @@ const decodeJwtPayload = (token) => {
     const parts = token.split(".");
 
     if (parts.length !== 3) {
-      console.error("❌ Invalid JWT format");
       return null;
     }
 
@@ -28,8 +27,7 @@ const decodeJwtPayload = (token) => {
     const jsonPayload = atob(paddedBase64);
 
     return JSON.parse(jsonPayload);
-  } catch (error) {
-    console.error("❌ Failed to decode JWT:", error);
+  } catch (_error) {
     return null;
   }
 };
@@ -41,34 +39,19 @@ const isTokenExpired = (token) => {
   const payload = decodeJwtPayload(token);
 
   if (!payload) {
-    console.error("❌ Could not read token expiration");
     return true;
   }
 
   if (!payload.exp) {
-    console.error("❌ Token does not contain exp");
     return true;
   }
 
   const expirationTime = payload.exp * 1000;
   const currentTime = Date.now();
 
-  const expirationDate = new Date(expirationTime);
-
-  console.log("⏰ Token expiration:", expirationDate.toLocaleString());
-
-  console.log("🕐 Current time:", new Date(currentTime).toLocaleString());
-
-  const remainingSeconds = Math.floor((expirationTime - currentTime) / 1000);
-
-  console.log("⏳ Token time remaining:", remainingSeconds, "seconds");
-
   if (currentTime >= expirationTime) {
-    console.log("❌ TOKEN EXPIRED");
     return true;
   }
-
-  console.log("✅ TOKEN IS VALID");
 
   return false;
 };
@@ -78,22 +61,14 @@ const isTokenExpired = (token) => {
 // --------------------------------------------------
 const handleExpiredToken = async () => {
   try {
-    console.log("🚪 Removing expired authentication token...");
-
     await AsyncStorage.removeItem("auth_token");
 
     // Optional: remove other authentication data
     // if your app stores any of these.
     // await AsyncStorage.removeItem("user");
 
-    console.log("✅ Expired token removed");
-
-    console.log("🔄 Redirecting to login...");
-
     router.replace("/login");
-  } catch (error) {
-    console.error("❌ Error handling expired token:", error);
-
+  } catch (_error) {
     // Try redirect anyway
     router.replace("/login");
   }
@@ -105,16 +80,9 @@ const handleExpiredToken = async () => {
 const getAuthToken = async () => {
   const token = await AsyncStorage.getItem("auth_token");
 
-  console.log(
-    "🔑 Token retrieved:",
-    token ? "✅ Token exists" : "❌ No token found",
-  );
-
   if (!token) {
     return null;
   }
-
-  console.log("Token preview:", token.substring(0, 20) + "...");
 
   // --------------------------------------------------
   // Check token expiration
@@ -122,8 +90,6 @@ const getAuthToken = async () => {
   const expired = isTokenExpired(token);
 
   if (expired) {
-    console.log("🚨 Authentication token has expired");
-
     await handleExpiredToken();
 
     return null;
@@ -151,18 +117,11 @@ export const useTeacher = (user_id) => {
     // If token is missing or expired,
     // getAuthToken() already redirected to login.
     if (!token) {
-      console.log("🚫 API request cancelled: no valid token");
-
       return {
         success: false,
         error: "Authentication required",
       };
     }
-
-    console.log("📡 Making request to:", `${API_BASE_URL}${endpoint}`);
-
-    console.log("🔐 Has token:", !!token);
-    console.log("📝 Method:", options.method || "GET");
 
     const headers = {
       "Content-Type": "application/json",
@@ -176,26 +135,18 @@ export const useTeacher = (user_id) => {
         headers,
       });
 
-      console.log("📊 Response status:", response.status);
-
       let data;
 
       try {
         data = await response.json();
       } catch (jsonError) {
-        console.error("❌ Failed to parse response:", jsonError);
-
         throw new Error(`Invalid server response (${response.status})`);
       }
-
-      console.log("📦 Response data:", data);
 
       // --------------------------------------------------
       // Worker rejected the token
       // --------------------------------------------------
       if (response.status === 401) {
-        console.log("🚨 Server rejected authentication token");
-
         await handleExpiredToken();
 
         return {
@@ -205,8 +156,6 @@ export const useTeacher = (user_id) => {
       }
 
       if (!response.ok) {
-        console.error("❌ Request failed with status:", response.status);
-
         return {
           success: false,
           error: data?.error || `Request failed with status ${response.status}`,
@@ -214,9 +163,7 @@ export const useTeacher = (user_id) => {
       }
 
       return data;
-    } catch (error) {
-      console.error("❌ Network error:", error.message);
-
+    } catch (_error) {
       throw error;
     }
   }, []);
@@ -226,15 +173,11 @@ export const useTeacher = (user_id) => {
   // --------------------------------------------------
   const fetchTeacherClasses = useCallback(async () => {
     if (!user_id) {
-      console.log("⚠️ No user_id provided");
-
       return {
         success: false,
         error: "No user_id provided",
       };
     }
-
-    console.log("📚 Fetching classes for teacher:", user_id);
 
     setLoading(true);
     setError(null);
@@ -245,8 +188,6 @@ export const useTeacher = (user_id) => {
       });
 
       if (result.success) {
-        console.log("✅ Classes fetched:", result.classes?.length || 0);
-
         setClasses(result.classes || []);
 
         return {
@@ -256,10 +197,8 @@ export const useTeacher = (user_id) => {
       }
 
       throw new Error(result.error || "Failed to fetch classes");
-    } catch (error) {
+    } catch (_error) {
       setError(error.message);
-
-      console.error("❌ Error fetching classes:", error);
 
       return {
         success: false,
@@ -276,15 +215,11 @@ export const useTeacher = (user_id) => {
   const fetchStudentsByClass = useCallback(
     async (classId) => {
       if (!classId) {
-        console.log("⚠️ No classId provided");
-
         return {
           success: false,
           error: "No classId provided",
         };
       }
-
-      console.log("👨‍🎓 Fetching students for class:", classId);
 
       setLoading(true);
       setError(null);
@@ -306,10 +241,8 @@ export const useTeacher = (user_id) => {
         }
 
         throw new Error(result.error || "Failed to fetch students");
-      } catch (error) {
+      } catch (_error) {
         setError(error.message);
-
-        console.error("❌ Error fetching students:", error);
 
         return {
           success: false,
@@ -327,15 +260,11 @@ export const useTeacher = (user_id) => {
   // --------------------------------------------------
   const fetchTeacherSchedule = useCallback(async () => {
     if (!user_id) {
-      console.log("⚠️ No user_id provided for schedule");
-
       return {
         success: false,
         error: "No user_id provided",
       };
     }
-
-    console.log("📅 Fetching schedule for teacher:", user_id);
 
     setLoading(true);
     setError(null);
@@ -348,8 +277,6 @@ export const useTeacher = (user_id) => {
       if (result.success) {
         const scheduleData = result.schedule || [];
 
-        console.log("✅ Schedule fetched:", scheduleData.length);
-
         setSchedule(scheduleData);
 
         return {
@@ -359,10 +286,8 @@ export const useTeacher = (user_id) => {
       }
 
       throw new Error(result.error || "Failed to fetch schedule");
-    } catch (error) {
+    } catch (_error) {
       setError(error.message);
-
-      console.error("❌ Error fetching schedule:", error);
 
       return {
         success: false,
@@ -414,9 +339,7 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to mark student absent",
         };
-      } catch (error) {
-        console.error("❌ Error marking absence:", error);
-
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
@@ -464,9 +387,7 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to mark student present",
         };
-      } catch (error) {
-        console.error("❌ Error marking present:", error);
-
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
@@ -501,9 +422,7 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to create schedule",
         };
-      } catch (error) {
-        console.error("❌ Error creating schedule:", error);
-
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
@@ -516,7 +435,6 @@ export const useTeacher = (user_id) => {
   // --------------------------------------------------
   // Delete schedule
   // --------------------------------------------------
-
   const deleteSchedule = useCallback(
     async (seanceId) => {
       if (!seanceId) {
@@ -527,19 +445,11 @@ export const useTeacher = (user_id) => {
       }
 
       try {
-        console.log("🗑️ Deleting seance:", seanceId);
-
-        console.log("👨‍🏫 Teacher ID:", user_id);
-
         const result = await apiRequest(`/api/teacher/schedule/${seanceId}`, {
           method: "DELETE",
         });
 
-        console.log("📦 Delete API response:", result);
-
         if (result?.success) {
-          console.log("✅ Seance deleted successfully");
-
           return {
             success: true,
             data: result,
@@ -550,9 +460,7 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result?.error || "Failed to delete schedule",
         };
-      } catch (error) {
-        console.error("❌ Error deleting schedule:", error);
-
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
@@ -589,9 +497,7 @@ export const useTeacher = (user_id) => {
         }
 
         throw new Error(result.error || "Failed to fetch absences");
-      } catch (error) {
-        console.error("❌ Error fetching absences:", error);
-
+      } catch (_error) {
         setError(error.message);
 
         return {
@@ -630,9 +536,38 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to justify absence",
         };
-      } catch (error) {
-        console.error("❌ Error justifying absence:", error);
+      } catch (_error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+    [apiRequest],
+  );
 
+  //-------------------------------------------------
+  // get student whose have Billet for a specific classe
+  //---------------------------------------------------
+  const getStudentsBillet = useCallback(
+    async (class_id) => {
+      try {
+        const billets = await apiRequest(`/api/billets/${class_id}`, {
+          method: "GET",
+        });
+
+        if (billets.success) {
+          return {
+            success: true,
+            data: billets.data || [],
+          };
+        }
+
+        return {
+          success: false,
+          error: billets.error || "Failed to fetch billets",
+        };
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
@@ -668,13 +603,34 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to fetch absence history",
         };
-      } catch (error) {
-        console.error("❌ Error fetching student absence history:", error);
-
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
         };
+      }
+    },
+    [apiRequest],
+  );
+
+  //--------------------------------------------
+  // reject a billet
+  //--------------------------------------------
+  const annulerBillet = useCallback(
+    async (studentId) => {
+      try {
+        const result = await apiRequest(
+          `/api/teacher/absence-notifications/${encodeURIComponent(
+            String(studentId),
+          )}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+        return result;
+      } catch (_error) {
+        throw error;
       }
     },
     [apiRequest],
@@ -704,9 +660,7 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to fetch current absence",
         };
-      } catch (error) {
-        console.error("❌ Error fetching current absence:", error);
-
+      } catch (_error) {
         return {
           success: false,
           error: error.message,
@@ -738,6 +692,9 @@ export const useTeacher = (user_id) => {
 
     fetchAbsencesByDate,
     justifyAbsence,
+
+    getStudentsBillet,
+    annulerBillet,
 
     getStudentAbsenceHistory,
     getStudentCurrentAbsence,

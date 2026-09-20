@@ -32,7 +32,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { login, user, loading: authLoading } = useAuth(); // Removed unused 'token'
+  const { login, user, loading: authLoading } = useAuth();
 
   // Check if running in Expo Go (development mode)
   const isExpoGo = Constants.appOwnership === "expo";
@@ -40,47 +40,37 @@ export default function LoginScreen() {
   // Register device token function - UPDATED to use Worker API
   const registerDeviceToken = async (userId, authToken) => {
     try {
-      console.log("========== DEVICE TOKEN REGISTRATION START ==========");
-      console.log("User ID:", userId);
-
       // Check if device is physical (not simulator)
       if (!Device.isDevice) {
-        console.log("Not a physical device");
         Alert.alert(
           "Warning",
           "Push notifications only work on physical devices",
         );
         return false;
       }
-      console.log("Device is physical");
 
       // Request permissions
       const { status: existingStatus } =
         await Notifications.getPermissionsAsync();
-      console.log("Existing permission status:", existingStatus);
 
       let finalStatus = existingStatus;
 
       if (existingStatus !== "granted") {
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
-        console.log("New permission status:", status);
       }
 
       if (finalStatus !== "granted") {
-        console.log("Permission denied");
         Alert.alert(
           "Permission denied",
           "Please enable notifications to receive alerts",
         );
         return false;
       }
-      console.log("Permission granted");
 
       // Get Expo push token - only in production build
       const projectId = Constants.expoConfig?.extra?.eas?.projectId;
       if (!projectId) {
-        console.error("No projectId found for push notifications");
         Alert.alert("Error", "Push notification configuration missing");
         return false;
       }
@@ -90,11 +80,9 @@ export default function LoginScreen() {
           projectId: projectId,
         })
       ).data;
-      console.log("Expo Push Token:", expoToken);
 
       // Get device name
       const deviceName = `${Device.deviceName || "Unknown"} - ${Device.osName || "Unknown"}`;
-      console.log("Device name:", deviceName);
 
       // Save to your Worker API instead of Supabase directly
       const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -118,17 +106,13 @@ export default function LoginScreen() {
       const result = await response.json();
 
       if (result.success) {
-        console.log("SUCCESS! Device token saved via Worker");
-        console.log("========== DEVICE TOKEN REGISTRATION END ==========");
         return true;
       } else {
-        console.error("ERROR saving device token:", result.error);
         return false;
       }
-    } catch (error) {
-      console.error("CATCH ERROR:", error);
+    } catch (_error) {
       if (!isExpoGo) {
-        Alert.alert("Error", `Unexpected error: ${error.message}`);
+        Alert.alert("Error", `Unexpected error: ${_error.message}`);
       }
       return false;
     }
@@ -148,34 +132,20 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
-    console.log("Attempting login with email:", email);
 
     const result = await login(email, password);
-    console.log("Login result:", result);
-    console.log("Result keys:", Object.keys(result));
 
     if (result.success) {
-      console.log("Login successful!");
-
       // Try to get token from different possible locations in the result
       const authToken =
         result.token || result.data?.token || result.user?.token;
       const userId =
         result.user?.user_id || result.user?.id || result.data?.user?.id;
 
-      console.log(
-        "Auth token found:",
-        authToken ? `Yes (length: ${authToken.length})` : "No",
-      );
-      console.log("User ID found:", userId || "No");
-
       if (authToken && userId) {
         // Register device token using Worker API
         await registerDeviceToken(userId, authToken);
       } else {
-        console.log("No auth token or user ID found in result");
-        console.log("Full result structure:", JSON.stringify(result, null, 2));
-
         // Optional: Show alert but still allow login
         if (!isExpoGo) {
           Alert.alert(
@@ -188,7 +158,6 @@ export default function LoginScreen() {
       // Navigate after token registration is complete
       router.replace("/(tabs)/dashboard");
     } else {
-      console.error("Login failed:", result.error);
       Alert.alert(
         "Erreur de connexion",
         result.error || "Une erreur est survenue",

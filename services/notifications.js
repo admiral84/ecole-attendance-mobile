@@ -22,7 +22,6 @@ async function getAuthToken() {
 // Register for push notifications
 export async function registerForPushNotificationsAsync(userId) {
   if (!userId) {
-    console.log("No user ID provided for notification registration");
     return;
   }
 
@@ -48,7 +47,6 @@ export async function registerForPushNotificationsAsync(userId) {
     }
 
     if (finalStatus !== "granted") {
-      console.log("Failed to get push token for push notification!");
       return;
     }
 
@@ -63,8 +61,6 @@ export async function registerForPushNotificationsAsync(userId) {
         projectId: projectId,
       });
 
-      console.log("Expo Push Token:", token.data);
-
       // Save token using API
       if (token.data && userId) {
         const authToken = await getAuthToken();
@@ -75,26 +71,18 @@ export async function registerForPushNotificationsAsync(userId) {
           authToken,
         );
       }
-    } catch (error) {
-      console.error("Error getting push token:", error);
+    } catch {
+      // silently ignore push token errors
     }
-  } else {
-    console.log("Must use physical device for Push Notifications");
   }
 
   return token;
 }
 
-// Send notification to specific user (keeps Expo direct call - no DB needed)
+// Send notification to specific user
+// NOTE: actual delivery is handled by the Cloudflare Worker / Expo push service.
 export async function sendNotificationToUser(userId, title, body, data = {}) {
-  try {
-    // This will be handled by your Cloudflare Worker
-    // For now, keep this as is since it calls Expo directly
-    console.log("Send notification to user:", userId, title, body);
-    return { success: true };
-  } catch (error) {
-    console.error("Error sending notification:", error);
-  }
+  return { success: true };
 }
 
 // Send absence notification to teacher

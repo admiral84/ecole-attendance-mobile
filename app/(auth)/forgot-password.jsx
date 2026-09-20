@@ -16,21 +16,22 @@ import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useAuth } from "../../hooks/useAuth";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
   const { resetPassword, emailExists } = useAuth();
 
   const handleResetPassword = async () => {
-    if (!email) {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail) {
       Alert.alert("Erreur", "Veuillez entrer votre email");
       return;
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!EMAIL_REGEX.test(trimmedEmail)) {
       Alert.alert("Erreur", "Veuillez entrer un email valide");
       return;
     }
@@ -38,9 +39,9 @@ export default function ForgotPasswordScreen() {
     setLoading(true);
 
     try {
-      const exists = await emailExists(email);
+      const exists = await emailExists(trimmedEmail);
+
       if (!exists) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
         Alert.alert(
           "Email non trouvé",
           "Cet email n'est pas associé à un compte. Veuillez vérifier votre email.",
@@ -48,14 +49,13 @@ export default function ForgotPasswordScreen() {
         return;
       }
 
-      const result = await resetPassword(email);
+      const result = await resetPassword(trimmedEmail);
 
       if (result.success) {
-        console.log("redirecting to verify otp");
         router.push({
           pathname: "/verifyOtp",
           params: {
-            email: email.trim(),
+            email: trimmedEmail,
           },
         });
       } else {
@@ -63,10 +63,8 @@ export default function ForgotPasswordScreen() {
           "Erreur",
           "Impossible d'envoyer l'email de réinitialisation. Veuillez réessayer.",
         );
-        console.log("Reset password error:", result.error);
       }
-    } catch (error) {
-      console.error("Error in handleResetPassword:", error);
+    } catch {
       Alert.alert(
         "Erreur",
         "Une erreur est survenue. Veuillez réessayer plus tard.",
@@ -99,62 +97,48 @@ export default function ForgotPasswordScreen() {
         delay={200}
         style={styles.form}
       >
-        {!emailSent ? (
-          <>
-            <View style={styles.inputContainer}>
-              <Icon
-                name="email"
-                size={20}
-                color="#6c63ff"
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#999"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!loading}
-              />
-            </View>
+        <View style={styles.inputContainer}>
+          <Icon
+            name="email"
+            size={20}
+            color="#6c63ff"
+            style={styles.inputIcon}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor="#999"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="send"
+            onSubmitEditing={handleResetPassword}
+            editable={!loading}
+          />
+        </View>
 
-            <TouchableOpacity
-              style={[styles.resetButton, loading && styles.disabledButton]}
-              onPress={handleResetPassword}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.resetButtonText}>Envoyer l&apos;email</Text>
-              )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Animatable.View
-              animation="pulse"
-              iterationCount={2}
-              style={styles.successIcon}
-            >
-              <Icon name="check-circle" size={80} color="#4CAF50" />
-            </Animatable.View>
-            <Text style={styles.successText}>Email envoyé!</Text>
-            <Text style={styles.successSubtext}>
-              Un code OTP à 8 chiffres a été envoyé à {email}.{"\n\n"}📧
-              Vérifiez votre boîte de réception (et vos spams).{"\n"}⏱️ Le code
-              est valable 10 minutes.
-            </Text>
-          </>
-        )}
+        <TouchableOpacity
+          style={[styles.resetButton, loading && styles.disabledButton]}
+          onPress={handleResetPassword}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.resetButtonText}>Envoyer l&apos;email</Text>
+          )}
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
           disabled={loading}
+          activeOpacity={0.7}
         >
           <Text style={styles.backButtonText}>Retour à la connexion</Text>
         </TouchableOpacity>
@@ -237,23 +221,5 @@ const styles = StyleSheet.create({
     color: "#6c63ff",
     fontSize: 16,
     fontWeight: "500",
-  },
-  successIcon: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  successText: {
-    textAlign: "center",
-    fontSize: 18,
-    color: "#4CAF50",
-    marginBottom: 10,
-    fontWeight: "bold",
-  },
-  successSubtext: {
-    textAlign: "center",
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 20,
-    lineHeight: 20,
   },
 });

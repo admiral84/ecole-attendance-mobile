@@ -1,12 +1,13 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -14,38 +15,134 @@ import { useAuth } from "../../hooks/useAuth";
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
+
   const [loading, setLoading] = useState(false);
 
+  const [stats, setStats] = useState({
+    classes: 0,
+    students: 0,
+    sessions: 0,
+  });
+
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // --------------------------------------------------
+  // Fetch stats when user is available
+  // --------------------------------------------------
+  useEffect(() => {
+    if (user?.user_id) {
+      fetchStats();
+    } else {
+      setStatsLoading(false);
+    }
+  }, [user?.user_id]);
+
+  // --------------------------------------------------
+  // Fetch teacher statistics
+  // --------------------------------------------------
+  const fetchStats = async () => {
+    if (!user?.user_id) {
+      setStatsLoading(false);
+      return;
+    }
+
+    try {
+      setStatsLoading(true);
+
+      const token = await AsyncStorage.getItem("auth_token");
+
+      if (!token) {
+        return;
+      }
+
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+
+      if (!apiUrl) {
+        return;
+      }
+
+      const url = `${apiUrl}/api/teacher/stats/${user.user_id}`;
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || `HTTP error ${response.status}`);
+      }
+
+      if (result?.success) {
+        setStats({
+          classes: Number(result.stats?.classes) || 0,
+          students: Number(result.stats?.students) || 0,
+          sessions: Number(result.stats?.sessions) || 0,
+        });
+      }
+    } catch (_error) {
+      // silently ignore; stats will remain at default values
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // Logout
+  // --------------------------------------------------
   const handleLogout = async () => {
     Alert.alert("Déconnexion", "Voulez-vous vraiment vous déconnecter?", [
-      { text: "Annuler", style: "cancel" },
+      {
+        text: "Annuler",
+        style: "cancel",
+      },
       {
         text: "Déconnecter",
         style: "destructive",
         onPress: async () => {
-          setLoading(true);
-          await logout();
-          setLoading(false);
-          router.replace("/(auth)/login");
+          try {
+            setLoading(true);
+
+            await logout();
+
+            router.replace("/(auth)/login");
+          } catch (_error) {
+            // silently ignore
+          } finally {
+            setLoading(false);
+          }
         },
       },
     ]);
   };
 
+  // --------------------------------------------------
+  // Information row
+  // --------------------------------------------------
   const InfoRow = ({ icon, label, value }) => (
     <View style={styles.infoRow}>
       <View style={styles.infoIcon}>
         <Icon name={icon} size={24} color="#6c63ff" />
       </View>
+
       <View style={styles.infoContent}>
         <Text style={styles.infoLabel}>{label}</Text>
+
         <Text style={styles.infoValue}>{value || "Non renseigné"}</Text>
       </View>
     </View>
   );
 
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header */}
       <Animatable.View
         animation="fadeInDown"
         duration={1000}
@@ -53,35 +150,45 @@ export default function ProfileScreen() {
       >
         <View style={styles.avatarContainer}>
           <Text style={styles.avatarText}>
-            {user?.prenom?.[0]}
-            {user?.nom?.[0]}
+            {user?.prenom?.[0] || ""}
+            {user?.nom?.[0] || ""}
           </Text>
         </View>
+
         <Text style={styles.userName}>
-          {user?.prenom} {user?.nom}
+          {user?.prenom || ""} {user?.nom || ""}
         </Text>
-        <Text style={styles.userRole}>{user?.role}</Text>
+
+        <Text style={styles.userRole}>{user?.role || "Enseignant"}</Text>
+
         <View style={styles.statusBadge}>
           <View
             style={[styles.statusDot, user?.approved && styles.statusApproved]}
           />
+
           <Text style={styles.statusText}>
             {user?.approved ? "Approuvé" : "En attente d'approbation"}
           </Text>
         </View>
       </Animatable.View>
 
+      {/* Content */}
       <Animatable.View
         animation="fadeInUp"
         duration={1000}
         delay={200}
         style={styles.content}
       >
+        {/* Personal information */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Informations personnelles</Text>
+
           <InfoRow icon="badge" label="Matricule" value={user?.matricule} />
+
           <InfoRow icon="email" label="Email" value={user?.email} />
+
           <InfoRow icon="phone" label="Téléphone" value={user?.phone} />
+
           <InfoRow
             icon="subject"
             label="Code matière"
@@ -89,41 +196,73 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* Statistics */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Statistiques</Text>
+
           <View style={styles.statsGrid}>
+            {/* Classes */}
             <View style={styles.statBox}>
               <Icon name="class" size={30} color="#6c63ff" />
-              <Text style={styles.statBoxValue}>--</Text>
+
+              <Text style={styles.statBoxValue}>
+                {statsLoading ? "..." : stats.classes}
+              </Text>
+
               <Text style={styles.statBoxLabel}>Classes</Text>
             </View>
+
+            {/* Students */}
             <View style={styles.statBox}>
               <Icon name="people" size={30} color="#6c63ff" />
-              <Text style={styles.statBoxValue}>--</Text>
+
+              <Text style={styles.statBoxValue}>
+                {statsLoading ? "..." : stats.students}
+              </Text>
+
               <Text style={styles.statBoxLabel}>Élèves</Text>
             </View>
+
+            {/* Sessions */}
             <View style={styles.statBox}>
               <Icon name="schedule" size={30} color="#6c63ff" />
-              <Text style={styles.statBoxValue}>--</Text>
+
+              <Text style={styles.statBoxValue}>
+                {statsLoading ? "..." : stats.sessions}
+              </Text>
+
               <Text style={styles.statBoxLabel}>Sessions</Text>
             </View>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        {/* Logout */}
+        <TouchableOpacity
+          style={[styles.logoutButton, loading && styles.logoutButtonDisabled]}
+          onPress={handleLogout}
+          disabled={loading}
+        >
           <Icon name="logout" size={24} color="#f44336" />
-          <Text style={styles.logoutButtonText}>Se déconnecter</Text>
+
+          <Text style={styles.logoutButtonText}>
+            {loading ? "Déconnexion..." : "Se déconnecter"}
+          </Text>
         </TouchableOpacity>
       </Animatable.View>
     </ScrollView>
   );
 }
 
+// --------------------------------------------------
+// Styles
+// --------------------------------------------------
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9ff",
   },
+
   header: {
     alignItems: "center",
     paddingTop: 60,
@@ -132,6 +271,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
+
   avatarContainer: {
     width: 100,
     height: 100,
@@ -142,23 +282,27 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     elevation: 5,
   },
+
   avatarText: {
     fontSize: 40,
     fontWeight: "bold",
     color: "#6c63ff",
   },
+
   userName: {
     fontSize: 24,
     fontWeight: "bold",
     color: "#fff",
     marginBottom: 5,
   },
+
   userRole: {
     fontSize: 16,
     color: "#fff",
     opacity: 0.9,
     marginBottom: 10,
   },
+
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -167,6 +311,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
+
   statusDot: {
     width: 8,
     height: 8,
@@ -174,16 +319,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#ff9800",
     marginRight: 8,
   },
+
   statusApproved: {
     backgroundColor: "#4CAF50",
   },
+
   statusText: {
     color: "#fff",
     fontSize: 12,
   },
+
   content: {
     padding: 20,
   },
+
   section: {
     backgroundColor: "#fff",
     borderRadius: 15,
@@ -191,12 +340,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     elevation: 2,
   },
+
   sectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
     marginBottom: 15,
   },
+
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -205,6 +356,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
+
   infoIcon: {
     width: 40,
     height: 40,
@@ -214,23 +366,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 15,
   },
+
   infoContent: {
     flex: 1,
   },
+
   infoLabel: {
     fontSize: 12,
     color: "#999",
     marginBottom: 2,
   },
+
   infoValue: {
     fontSize: 16,
     color: "#333",
     fontWeight: "500",
   },
+
   statsGrid: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
+
   statBox: {
     flex: 1,
     alignItems: "center",
@@ -239,17 +396,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginHorizontal: 5,
   },
+
   statBoxValue: {
     fontSize: 20,
     fontWeight: "bold",
     color: "#333",
     marginTop: 10,
   },
+
   statBoxLabel: {
     fontSize: 12,
     color: "#999",
     marginTop: 5,
   },
+
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -261,6 +421,11 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     elevation: 2,
   },
+
+  logoutButtonDisabled: {
+    opacity: 0.6,
+  },
+
   logoutButtonText: {
     marginLeft: 10,
     fontSize: 16,

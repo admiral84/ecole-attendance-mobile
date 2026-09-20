@@ -18,7 +18,13 @@ import { useAuth } from "../../../hooks/useAuth";
 import { useTeacher } from "../../../hooks/useTeacher";
 
 // Move StudentCard outside of the main component to avoid re-creation
-const StudentCard = ({ student, onPress, onMarkAbsent, onMarkReturn }) => (
+const StudentCard = ({
+  student,
+  hasBillet,
+  onPress,
+  onMarkAbsent,
+  onMarkReturn,
+}) => (
   <Animatable.View
     animation="fadeInUp"
     duration={500}
@@ -30,39 +36,75 @@ const StudentCard = ({ student, onPress, onMarkAbsent, onMarkReturn }) => (
       activeOpacity={0.7}
     >
       <View style={styles.avatarContainer}>
-        <Text style={styles.avatarText}>{student.nom?.[0]}</Text>
+        <Text style={styles.avatarText}>
+          {student.nom?.[0]?.toUpperCase() || "?"}
+        </Text>
       </View>
+
       <View style={styles.studentDetails}>
         <Text style={styles.studentName}>{student.nom}</Text>
+
         <Text style={styles.studentId}>ID: {student.id_eleve}</Text>
+
         <Text style={styles.studentId}>numéro: {student.num}</Text>
+
         <Text style={styles.parentInfo}>Père: {student.pere || "N/A"}</Text>
-        {!student.present && student.currentAbsence && (
+
+        {/* ABSENT INFORMATION */}
+        {!student.present && !hasBillet && student.currentAbsence && (
           <Text style={styles.absenceInfo}>
-            Absent depuis le{" "}
+            Absent depuis{" "}
             {new Date(student.currentAbsence.date_deb).toLocaleDateString(
               "fr-FR",
             )}
           </Text>
         )}
+
+        {/* BILLET INFORMATION */}
+        {hasBillet && (
+          <View style={styles.billetBadge}>
+            <Icon name="confirmation-number" size={14} color="#fff" />
+            <Text style={styles.billetText}>Billet</Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
+
     <View style={styles.actionButtons}>
-      {student.present ? (
+      {/* ============================= */}
+      {/* 1. STUDENT HAS BILLET */}
+      {/* ============================= */}
+      {hasBillet ? (
+        <View style={[styles.actionButton, styles.billetButton]}>
+          <TouchableOpacity
+            onPress={() => onMarkReturn(student)}
+            style={styles.billetStyle}
+          >
+            <Icon name="confirmation-number" size={20} color="#fff" />
+
+            <Text style={styles.buttonText}>Billet</Text>
+          </TouchableOpacity>
+        </View>
+      ) : student.present ? (
+        /* ============================= */
+        /* 2. STUDENT IS PRESENT */
+        /* ============================= */
         <TouchableOpacity
           style={[styles.actionButton, styles.absentButton]}
           onPress={() => onMarkAbsent(student)}
         >
-          <Icon name="close" size={20} color="#fff" />
-          <Text style={styles.buttonText}>Absent</Text>
+          <Icon name="check" size={20} color="#fff" />
+
+          <Text style={styles.buttonText}>Présent</Text>
         </TouchableOpacity>
       ) : (
-        <TouchableOpacity
-          style={[styles.actionButton, styles.presentButton]}
-          onPress={() => onMarkReturn(student)}
-        >
-          <Icon name="check" size={20} color="#fff" />
-          <Text style={styles.buttonText}>Retour</Text>
+        /* ============================= */
+        /* 3. STUDENT IS ABSENT */
+        /* ============================= */
+        <TouchableOpacity style={[styles.actionButton, styles.presentButton]}>
+          <Icon name="close" size={20} color="#fff" />
+
+          <Text style={styles.buttonText}>Absent</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -72,9 +114,15 @@ const StudentCard = ({ student, onPress, onMarkAbsent, onMarkReturn }) => (
 export default function StudentsScreen() {
   const { classId } = useLocalSearchParams();
   const { user } = useAuth();
-  const { fetchStudentsByClass, markAbsence, markPresent, loading } =
-    useTeacher(user?.user_id || "");
-
+  const {
+    fetchStudentsByClass,
+    markAbsence,
+    markPresent,
+    getStudentsBillet,
+    annulerBillet,
+    loading,
+  } = useTeacher(user?.user_id || "");
+  const [billetStudentIds, setBilletStudentIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -97,10 +145,48 @@ export default function StudentsScreen() {
     }
   }, [classId]);
 
+  const rejectBillet = (selectedStudent) => {
+    annulerBillet(String(selectedStudent.id_eleve));
+    setReturnModalVisible(false);
+  };
+
   const loadStudents = async () => {
-    const result = await fetchStudentsByClass(classId);
-    if (result?.success && result.data) {
-      setLocalStudents(result.data);
+    try {
+      const [studentsResult, billetsResult] = await Promise.all([
+        fetchStudentsByClass(classId),
+        getStudentsBillet(classId),
+      ]);
+
+      // -----------------------------
+      // Students
+      // -----------------------------
+      if (studentsResult?.success) {
+        setLocalStudents(studentsResult.data || []);
+      } else {
+        setLocalStudents([]);
+      }
+
+      // -----------------------------
+      // Billets
+      // -----------------------------
+      if (billetsResult?.success) {
+        const billetIds = (billetsResult.data || [])
+          .map((item) => {
+            if (typeof item === "object") {
+              return item?.student_id;
+            }
+
+            return item;
+          })
+          .filter(Boolean)
+          .map((id) => String(id).trim());
+
+        setBilletStudentIds(billetIds);
+      } else {
+        setBilletStudentIds([]);
+      }
+    } catch (_error) {
+      Alert.alert("Erreur", "Impossible de charger les élèves");
     }
   };
 
@@ -221,15 +307,20 @@ export default function StudentsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {filteredStudents.map((student) => (
-          <StudentCard
-            key={student.id_eleve}
-            student={student}
-            onPress={handleStudentPress}
-            onMarkAbsent={openAbsenceModal}
-            onMarkReturn={openReturnModal}
-          />
-        ))}
+        {filteredStudents.map((student) => {
+          const hasBillet = billetStudentIds.includes(String(student.id_eleve));
+
+          return (
+            <StudentCard
+              key={student.id_eleve}
+              student={student}
+              hasBillet={hasBillet}
+              onPress={handleStudentPress}
+              onMarkAbsent={openAbsenceModal}
+              onMarkReturn={openReturnModal}
+            />
+          );
+        })}
         {filteredStudents.length === 0 && !loading && (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>Aucun élève trouvé</Text>
@@ -320,7 +411,9 @@ export default function StudentsScreen() {
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setModalVisible(false)}
+                onPress={() => {
+                  rejectBillet(selectedStudent);
+                }}
               >
                 <Text style={styles.cancelButtonText}>Annuler</Text>
               </TouchableOpacity>
@@ -399,15 +492,15 @@ export default function StudentsScreen() {
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setReturnModalVisible(false)}
+                onPress={() => rejectBillet(selectedStudent)}
               >
-                <Text style={styles.cancelButtonText}>Annuler</Text>
+                <Text style={styles.cancelButtonText}>Rejeter</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={handleMarkPresent}
               >
-                <Text style={styles.saveButtonText}>Enregistrer le retour</Text>
+                <Text style={styles.saveButtonText}>Confirmer</Text>
               </TouchableOpacity>
             </View>
           </Animatable.View>
@@ -532,10 +625,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
-  presentButton: {
+  absentButton: {
     backgroundColor: "#4CAF50",
   },
-  absentButton: {
+  presentButton: {
     backgroundColor: "#f44336",
   },
   buttonText: {
@@ -630,6 +723,32 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     padding: 20,
+    alignItems: "center",
+  },
+  billetBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#ff9800",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 5,
+  },
+
+  billetText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+
+  billetButton: {
+    backgroundColor: "#ff9800",
+  },
+
+  billetStyle: {
+    flexDirection: "row",
     alignItems: "center",
   },
 });

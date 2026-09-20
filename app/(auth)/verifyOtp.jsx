@@ -74,8 +74,7 @@ export default function VerifyOtpScreen() {
       // verifyOtp creates the recovery session. The next screen should call:
       // supabase.auth.updateUser({ password: newPassword })
       router.replace("/reset-password");
-    } catch (error) {
-      console.error("OTP verification error:", error);
+    } catch (_error) {
       Alert.alert("Erreur", "Une erreur est survenue. Veuillez réessayer.");
     } finally {
       setLoading(false);
@@ -100,8 +99,7 @@ export default function VerifyOtpScreen() {
         "Code renvoyé",
         "Un nouveau code OTP a été envoyé à votre email.",
       );
-    } catch (error) {
-      console.error("OTP resend error:", error);
+    } catch (_error) {
       Alert.alert("Erreur", "Une erreur est survenue. Veuillez réessayer.");
     } finally {
       setResending(false);
@@ -147,7 +145,7 @@ export default function VerifyOtpScreen() {
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder="Code OTP "
+            placeholder="Code OTP"
             placeholderTextColor="#999"
             value={otp}
             onChangeText={handleOtpChange}
@@ -202,7 +200,7 @@ export default function VerifyOtpScreen() {
           onPress={() => router.back()}
           disabled={loading || resending}
         >
-          <Text style={styles.backButtonText}>Retour à l&aposemail</Text>
+          <Text style={styles.backButtonText}>Retour à l&apos;email</Text>
         </TouchableOpacity>
       </Animatable.View>
     </KeyboardAvoidingView>

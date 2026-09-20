@@ -40,18 +40,12 @@ export default function ResetPasswordScreen() {
       } = await supabase.auth.getSession();
 
       if (error) {
-        console.error("Session error:", error);
         return;
       }
 
-      console.log(
-        "Recovery session:",
-        session ? "✅ Session exists" : "❌ No session",
-      );
-
       setHasRecoverySession(!!session);
-    } catch (error) {
-      console.error("Check session error:", error);
+    } catch (_error) {
+      // silently ignore
     } finally {
       setCheckingSession(false);
     }
@@ -97,15 +91,11 @@ export default function ResetPasswordScreen() {
     setLoading(true);
 
     try {
-      console.log("🔐 Updating password...");
-
-      const { data, error } = await supabase.auth.updateUser({
+      const { error } = await supabase.auth.updateUser({
         password: password,
       });
 
       if (error) {
-        console.error("❌ Update password error:", error);
-
         Alert.alert(
           "Erreur",
           error.message || "Impossible de modifier le mot de passe.",
@@ -113,8 +103,6 @@ export default function ResetPasswordScreen() {
 
         return;
       }
-
-      console.log("✅ Password updated:", !!data.user);
 
       Alert.alert(
         "Mot de passe modifié",
@@ -131,9 +119,7 @@ export default function ResetPasswordScreen() {
           },
         ],
       );
-    } catch (error) {
-      console.error("Reset password error:", error);
-
+    } catch (_error) {
       Alert.alert("Erreur", "Une erreur est survenue. Veuillez réessayer.");
     } finally {
       setLoading(false);

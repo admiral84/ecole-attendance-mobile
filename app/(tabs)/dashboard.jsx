@@ -15,13 +15,8 @@ import { useTeacher } from "../../hooks/useTeacher";
 
 export default function DashboardScreen() {
   const { user } = useAuth();
-  const {
-    classes,
-    schedule,
-    fetchTeacherClasses,
-    fetchTeacherSchedule,
-    loading,
-  } = useTeacher(user?.user_id);
+  const { classes, schedule, fetchTeacherClasses, fetchTeacherSchedule } =
+    useTeacher(user?.user_id);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {

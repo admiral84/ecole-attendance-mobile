@@ -93,20 +93,11 @@ export default function ScheduleScreen() {
     // Do not make the request until authentication has
     // finished loading and we have a teacher ID.
     if (!user?.user_id) {
-      console.log("⏳ ScheduleScreen: waiting for teacher user...");
-
       return;
     }
 
     try {
-      console.log(
-        "📅 ScheduleScreen: loading schedule for teacher:",
-        user.user_id,
-      );
-
       const result = await fetchTeacherSchedule();
-
-      console.log("📦 ScheduleScreen result:", result);
 
       if (result?.success && result.data) {
         const enhancedSchedule = await Promise.all(
@@ -118,45 +109,34 @@ export default function ScheduleScreen() {
             // Get class name
             // -----------------------------------------------
             try {
-              const { data: classData, error: classError } = await supabase
+              const { data: classData } = await supabase
                 .from("classes")
                 .select("libelle")
                 .eq("id_class", seance.id_classe)
                 .single();
 
-              if (classError) {
-                console.log("⚠️ Could not fetch class:", classError.message);
-              }
-
               if (classData?.libelle) {
                 classLibelleValue = classData.libelle;
               }
-            } catch (error) {
-              console.error("Error fetching class:", error);
+            } catch (_error) {
+              // keep fallback value
             }
 
             // -----------------------------------------------
             // Get subject name
             // -----------------------------------------------
             try {
-              const { data: subjectData, error: subjectError } = await supabase
+              const { data: subjectData } = await supabase
                 .from("matiere")
                 .select("libelle")
                 .eq("code_matiere", seance.code_matiere)
                 .single();
 
-              if (subjectError) {
-                console.log(
-                  "⚠️ Could not fetch subject:",
-                  subjectError.message,
-                );
-              }
-
               if (subjectData?.libelle) {
                 matiereLibelleValue = subjectData.libelle;
               }
-            } catch (error) {
-              console.error("Error fetching subject:", error);
+            } catch (_error) {
+              // keep fallback value
             }
 
             return {
@@ -168,15 +148,11 @@ export default function ScheduleScreen() {
         );
 
         setScheduleData(enhancedSchedule);
-
-        console.log("✅ Schedule loaded:", enhancedSchedule.length);
       } else {
-        console.log("ℹ️ No schedule returned");
-
         setScheduleData([]);
       }
-    } catch (error) {
-      console.error("❌ Error loading schedule:", error);
+    } catch (_error) {
+      setScheduleData([]);
     }
   }, [user?.user_id, fetchTeacherSchedule]);
 
@@ -186,24 +162,18 @@ export default function ScheduleScreen() {
 
   const fetchClasses = useCallback(async () => {
     try {
-      console.log("📚 Loading classes...");
-
       const { data, error } = await supabase
         .from("classes")
         .select("*")
         .order("libelle");
 
       if (error) {
-        console.error("❌ Error fetching classes:", error);
-
         return;
       }
 
       setClasses(data || []);
-
-      console.log("✅ Classes loaded:", data?.length || 0);
-    } catch (error) {
-      console.error("❌ Error fetching classes:", error);
+    } catch (_error) {
+      // silently ignore
     }
   }, []);
 
@@ -213,24 +183,18 @@ export default function ScheduleScreen() {
 
   const fetchSubjects = useCallback(async () => {
     try {
-      console.log("📚 Loading subjects...");
-
       const { data, error } = await supabase
         .from("matiere")
         .select("*")
         .order("code_matiere");
 
       if (error) {
-        console.error("❌ Error fetching subjects:", error);
-
         return;
       }
 
       setSubjects(data || []);
-
-      console.log("✅ Subjects loaded:", data?.length || 0);
-    } catch (error) {
-      console.error("❌ Error fetching subjects:", error);
+    } catch (_error) {
+      // silently ignore
     }
   }, []);
 
@@ -242,12 +206,8 @@ export default function ScheduleScreen() {
     // IMPORTANT:
     // Wait for useAuth() to provide the teacher.
     if (!user?.user_id) {
-      console.log("⏳ ScheduleScreen: waiting for user...");
-
       return;
     }
-
-    console.log("🚀 ScheduleScreen: initial loading...");
 
     fetchClasses();
     fetchSubjects();
@@ -297,12 +257,8 @@ export default function ScheduleScreen() {
       user_id: user.user_id,
     };
 
-    console.log("➕ Creating schedule:", seanceData);
-
     try {
       const result = await createSchedule(seanceData);
-
-      console.log("📦 Create schedule result:", result);
 
       if (result?.success) {
         Alert.alert("Succès", "Session ajoutée avec succès");
@@ -319,9 +275,7 @@ export default function ScheduleScreen() {
           result?.error || "Impossible d'ajouter la session",
         );
       }
-    } catch (error) {
-      console.error("❌ Error adding schedule:", error);
-
+    } catch (_error) {
       Alert.alert("Erreur", "Une erreur est survenue lors de l'ajout");
     }
   };
@@ -338,8 +292,6 @@ export default function ScheduleScreen() {
     }
 
     if (!selectedSeance.id) {
-      console.error("❌ Selected seance has no ID:", selectedSeance);
-
       Alert.alert("Erreur", "Identifiant de la session introuvable");
 
       return;
@@ -354,11 +306,7 @@ export default function ScheduleScreen() {
     setDeleting(true);
 
     try {
-      console.log("🗑️ Deleting seance with ID:", selectedSeance.id);
-
       const result = await deleteSchedule(selectedSeance.id);
-
-      console.log("📦 Delete result:", result);
 
       if (result?.success) {
         Alert.alert("Succès", "Session supprimée avec succès");
@@ -374,9 +322,7 @@ export default function ScheduleScreen() {
           result?.error || "Impossible de supprimer la session",
         );
       }
-    } catch (error) {
-      console.error("❌ Error in handleDeleteSeance:", error);
-
+    } catch (_error) {
       Alert.alert("Erreur", "Une erreur est survenue lors de la suppression");
     } finally {
       setDeleting(false);
@@ -461,8 +407,6 @@ export default function ScheduleScreen() {
   // =========================================================
 
   const openDeleteModal = (seance) => {
-    console.log("🗑️ Opening delete modal for:", seance);
-
     setSelectedSeance(seance);
     setDeleteModalVisible(true);
   };

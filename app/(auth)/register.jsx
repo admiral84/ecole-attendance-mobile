@@ -50,13 +50,10 @@ export default function RegisterScreen() {
 
       if (data.success) {
         setSubjects(data.subjects);
-        console.log("Subjects loaded:", data.subjects.length);
       } else {
-        console.error("Failed to fetch subjects:", data.error);
         Alert.alert("Erreur", "Impossible de charger les matières");
       }
-    } catch (error) {
-      console.error("Error fetching subjects:", error);
+    } catch (_error) {
       Alert.alert("Erreur", "Impossible de charger les matières");
     } finally {
       setSubjectsLoading(false);
@@ -68,8 +65,6 @@ export default function RegisterScreen() {
   };
 
   const handleSubjectSelect = (subject) => {
-    console.log("Selected subject:", subject);
-    // Update both fields at once
     setFormData((prev) => ({
       ...prev,
       code_matiere: subject.code_matiere,
@@ -89,16 +84,6 @@ export default function RegisterScreen() {
       phone,
       code_matiere,
     } = formData;
-
-    console.log("Form data before validation:", {
-      matricule,
-      nom,
-      prenom,
-      email,
-      phone,
-      code_matiere,
-      password: password ? "***" : "empty",
-    });
 
     if (
       !matricule ||
@@ -139,8 +124,6 @@ export default function RegisterScreen() {
         code_matiere: code_matiere,
       },
     };
-
-    console.log("Sending registration data:", requestData);
 
     const result = await register(requestData);
     setLoading(false);
@@ -273,14 +256,6 @@ export default function RegisterScreen() {
             <Icon name="arrow-drop-down" size={24} color="#6c63ff" />
           </TouchableOpacity>
 
-          {/* Debug: Show selected code */}
-          {formData.code_matiere ? (
-            <Text style={styles.debugText}>
-              ✓ Matière sélectionnée: {formData.selectedSubjectName} (Code:{" "}
-              {formData.code_matiere})
-            </Text>
-          ) : null}
-
           <View style={styles.inputContainer}>
             <Icon name="lock" size={20} color="#6c63ff" />
             <TextInput
@@ -318,7 +293,7 @@ export default function RegisterScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.registerButtonText}>S&aposinscrire</Text>
+              <Text style={styles.registerButtonText}>S&apos;inscrire</Text>
             )}
           </TouchableOpacity>
 
@@ -428,12 +403,6 @@ const styles = StyleSheet.create({
   placeholderText: {
     fontSize: 16,
     color: "#999",
-  },
-  debugText: {
-    fontSize: 12,
-    color: "#4CAF50",
-    marginBottom: 10,
-    marginLeft: 10,
   },
   registerButton: {
     backgroundColor: "#6c63ff",

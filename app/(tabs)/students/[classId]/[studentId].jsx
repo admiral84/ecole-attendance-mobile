@@ -16,7 +16,7 @@ import { useTeacher } from "../../../../hooks/useTeacher";
 import { supabase } from "../../../../services/supabase";
 
 export default function StudentDetailsScreen() {
-  const { classId, studentId } = useLocalSearchParams();
+  const { studentId } = useLocalSearchParams();
   const { user } = useAuth();
   const { getStudentAbsenceHistory, getStudentCurrentAbsence } = useTeacher(
     user?.user_id || "",
@@ -64,8 +64,7 @@ export default function StudentDetailsScreen() {
       if (currentResult.success) {
         setCurrentAbsence(currentResult.data);
       }
-    } catch (error) {
-      console.error("Error loading student data:", error);
+    } catch (_error) {
       Alert.alert("Erreur", "Impossible de charger les données de l'élève");
     } finally {
       setLoading(false);
@@ -242,7 +241,7 @@ export default function StudentDetailsScreen() {
 
             <View style={styles.infoCard}>
               <Text style={styles.sectionTitle}>
-                Statistiques d&lsquo;absences
+                Statistiques d&aposabsences
               </Text>
               <View style={styles.statsRow}>
                 <View style={styles.statBox}>

@@ -21,7 +21,7 @@ export const useAuth = () => {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
       }
-    } catch (error) {
+    } catch (_error) {
       console.error("Error loading data:", error);
     } finally {
       setLoading(false);
@@ -49,7 +49,7 @@ export const useAuth = () => {
       }
 
       return { success: false, error: data.error };
-    } catch (error) {
+    } catch (_error) {
       console.error("Login error:", error);
       return { success: false, error: error.message };
     }
@@ -65,7 +65,7 @@ export const useAuth = () => {
 
       const data = await response.json();
       return data; // The backend already returns { success, error }
-    } catch (error) {
+    } catch (_error) {
       console.error("Register error:", error);
       return { success: false, error: error.message };
     }
@@ -81,7 +81,7 @@ export const useAuth = () => {
 
       const data = await response.json();
       return data.exists;
-    } catch (error) {
+    } catch (_error) {
       console.error("Email exists error:", error);
       return false;
     }
@@ -97,7 +97,7 @@ export const useAuth = () => {
 
       const data = await response.json();
       return data;
-    } catch (error) {
+    } catch (_error) {
       console.error("Reset password error:", error);
       return { success: false, error: error.message };
     }
@@ -111,7 +111,7 @@ export const useAuth = () => {
       setToken(null);
       setUser(null);
       return { success: true };
-    } catch (error) {
+    } catch (_error) {
       console.error("Logout error:", error);
       return { success: false, error: error.message };
     }
