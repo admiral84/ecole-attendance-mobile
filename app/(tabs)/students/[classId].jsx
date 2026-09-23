@@ -145,11 +145,28 @@ export default function StudentsScreen() {
     }
   }, [classId]);
 
-  const rejectBillet = (selectedStudent) => {
-    annulerBillet(String(selectedStudent.id_eleve));
-    setReturnModalVisible(false);
-  };
+  const rejectBillet = async (selectedStudent) => {
+    try {
+      console.log("🚫 selectedStudent:", selectedStudent);
+      console.log("🚫 id_eleve:", selectedStudent?.id_eleve);
+      console.log("🚫 id_eleve type:", typeof selectedStudent?.id_eleve);
 
+      const studentId = String(selectedStudent.id_eleve);
+
+      const result = await annulerBillet(studentId);
+
+      console.log("✅ Billet annulé:", result);
+
+      setReturnModalVisible(false);
+
+      // optionally reload the students/billets here
+      // await loadStudents();
+    } catch (error) {
+      console.error("❌ Erreur annulation billet:", error);
+
+      Alert.alert("Erreur", error?.message || "Impossible d'annuler le billet");
+    }
+  };
   const loadStudents = async () => {
     try {
       const [studentsResult, billetsResult] = await Promise.all([
@@ -411,9 +428,7 @@ export default function StudentsScreen() {
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  rejectBillet(selectedStudent);
-                }}
+                onPress={() => setModalVisible(false)}
               >
                 <Text style={styles.cancelButtonText}>Annuler</Text>
               </TouchableOpacity>

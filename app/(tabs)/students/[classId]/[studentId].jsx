@@ -25,6 +25,7 @@ export default function StudentDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [absenceHistory, setAbsenceHistory] = useState(null);
   const [currentAbsence, setCurrentAbsence] = useState(null);
+
   const [activeTab, setActiveTab] = useState("info"); // info, history
 
   useEffect(() => {
@@ -45,19 +46,13 @@ export default function StudentDetailsScreen() {
       setStudent(studentData);
 
       // Fetch absence history
-      const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 3); // Last 3 months
-      const endDate = new Date();
 
-      const historyResult = await getStudentAbsenceHistory(
-        studentId,
-        startDate.toISOString().split("T")[0],
-        endDate.toISOString().split("T")[0],
-      );
+      const historyResult = await getStudentAbsenceHistory(studentId);
 
       if (historyResult.success) {
         setAbsenceHistory(historyResult.data);
       }
+      console.log("total===", historyResult.total);
 
       // Fetch current absence
       const currentResult = await getStudentCurrentAbsence(studentId);
@@ -243,41 +238,66 @@ export default function StudentDetailsScreen() {
               <Text style={styles.sectionTitle}>
                 Statistiques d&aposabsences
               </Text>
+
               <View style={styles.statsRow}>
+                {/* Total */}
                 <View style={styles.statBox}>
                   <Text style={styles.statNumber}>
-                    {absenceHistory?.total || 0}
+                    {absenceHistory?.length || 0}
                   </Text>
                   <Text style={styles.statLabel}>Total absences</Text>
                 </View>
+
+                {/* Justified */}
                 <View style={styles.statBox}>
                   <Text style={[styles.statNumber, styles.justifiedText]}>
-                    {absenceHistory?.justified || 0}
+                    {absenceHistory?.filter(
+                      (absence) => absence.justified === true,
+                    ).length || 0}
                   </Text>
                   <Text style={styles.statLabel}>Justifiées</Text>
                 </View>
+
+                {/* Not justified */}
                 <View style={styles.statBox}>
                   <Text style={[styles.statNumber, styles.unjustifiedText]}>
-                    {absenceHistory?.unjustified || 0}
+                    {absenceHistory?.filter(
+                      (absence) => absence.justified !== true,
+                    ).length || 0}
                   </Text>
                   <Text style={styles.statLabel}>Non justifiées</Text>
                 </View>
               </View>
+
+              {/* Current absence */}
               {currentAbsence && (
                 <View style={styles.currentAbsenceAlert}>
                   <Icon name="warning" size={20} color="#f44336" />
-                  <Text style={styles.currentAbsenceText}>
-                    Actuellement absent depuis le{" "}
-                    {formatDate(currentAbsence.date_deb)}
-                  </Text>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.currentAbsenceText}>
+                      Actuellement absent
+                    </Text>
+
+                    <Text style={styles.currentAbsenceDetails}>
+                      Depuis le {formatDate(currentAbsence.date_deb)}
+                      {currentAbsence.heure_deb &&
+                        ` à ${formatTime(currentAbsence.heure_deb)}`}
+                    </Text>
+
+                    <Text style={styles.currentAbsenceDetails}>
+                      Statut :{" "}
+                      {currentAbsence.justified ? "Justifiée" : "Non justifiée"}
+                    </Text>
+                  </View>
                 </View>
               )}
             </View>
           </Animatable.View>
         ) : (
           <Animatable.View animation="fadeIn" style={styles.historySection}>
-            {absenceHistory?.absences?.length > 0 ? (
-              absenceHistory.absences.map((absence, index) => (
+            {absenceHistory?.length > 0 ? (
+              absenceHistory.map((absence, index) => (
                 <View key={index} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
                     <Icon
@@ -474,7 +494,7 @@ const styles = StyleSheet.create({
   infoCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 15,
+    padding: 30,
     elevation: 2,
   },
   sectionTitle: {
@@ -523,6 +543,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#999",
     marginTop: 5,
+  },
+  currentAbsenceDetails: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 3,
   },
   currentAbsenceAlert: {
     flexDirection: "row",

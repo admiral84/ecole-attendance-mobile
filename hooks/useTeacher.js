@@ -387,10 +387,10 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to mark student present",
         };
-      } catch (_error) {
+      } catch (error) {
         return {
           success: false,
-          error: error.message,
+          error: error.message || "Request failed",
         };
       }
     },
@@ -581,21 +581,23 @@ export const useTeacher = (user_id) => {
   // Get student absence history
   // --------------------------------------------------
   const getStudentAbsenceHistory = useCallback(
-    async (studentId, startDate, endDate) => {
+    async (studentId) => {
       try {
         const result = await apiRequest(
-          `/api/teacher/student-absences/${studentId}?startDate=${encodeURIComponent(
-            startDate,
-          )}&endDate=${encodeURIComponent(endDate)}`,
+          `/api/teacher/student-absences/${studentId}`,
           {
             method: "GET",
           },
         );
+        console.log("api called successfully");
 
         if (result.success) {
           return {
             success: true,
             data: result.history || [],
+            total: result.total || 0,
+            justified: result.justified || 0,
+            unjustified: result.unjustified || 0,
           };
         }
 
@@ -603,7 +605,7 @@ export const useTeacher = (user_id) => {
           success: false,
           error: result.error || "Failed to fetch absence history",
         };
-      } catch (_error) {
+      } catch (error) {
         return {
           success: false,
           error: error.message,
@@ -629,13 +631,13 @@ export const useTeacher = (user_id) => {
         );
 
         return result;
-      } catch (_error) {
+      } catch (error) {
+        console.error("❌ annulerBillet error:", error);
         throw error;
       }
     },
     [apiRequest],
   );
-
   // --------------------------------------------------
   // Get student's current absence
   // --------------------------------------------------

@@ -4,15 +4,15 @@ import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -21,7 +21,7 @@ import { useAuth } from "../../hooks/useAuth";
 // Configure notification handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
